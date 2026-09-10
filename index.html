@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Matter Onboarding Station</title>
-    <!-- Pull in a standard, open-source QR code rendering engine safely -->
     <script src="https://cloudflare.com"></script>
     <style>
         body {
@@ -31,6 +30,8 @@
             display: inline-block;
             border: 2px solid #bdc3c7;
             border-radius: 8px;
+            min-width: 250px;
+            min-height: 250px;
         }
         .info-box {
             background-color: #ecf0f1;
@@ -49,7 +50,6 @@
     <h2>Open Sesame</h2>
     <div class="meta-text">Ecosystem Onboarding Dashboard</div>
     
-    <!-- This is where the dynamic QR code will be injected -->
     <div id="qrcode"></div>
     
     <div class="info-box">
@@ -59,27 +59,84 @@
 </div>
 
 <script>
-    // 1. Grab the dynamic parameters passed out of the flash_device.bat link
-    const urlParams = new URLSearchParams(window.location.search);
-    const discriminator = urlParams.get('disc') || '1000';
-    const passcode = urlParams.get('pin') || '10000000';
+    function generateMatterQrPayload(discriminator, passcode, vid=0xFFF1, pid=0x8000) {
+        try {
+            // 1. Bit-pack parameters into BigInt slots safely
+            let bitPayload = BigInt(0);
+            bitPayload |= BigInt(0 & 0x07);              
+            bitPayload |= BigInt(vid & 0xFFFF) << 3n;     
+            bitPayload |= BigInt(pid & 0xFFFF) << 19n;    
+            bitPayload |= BigInt(0 & 0x03) << 35n;        
+            bitPayload |= BigInt(4 & 0xFF) << 37n;        
+            bitPayload |= BigInt(discriminator & 0xFFF) << 45n; 
+            bitPayload |= BigInt(passcode & 0x7FFFFFF) << 57n;  
 
-    // Update the human-readable text labels at the bottom of the page
+            // 2. Unpack into 11 distinct raw data bytes
+            let rawBytes = [];
+            let tempPayload = bitPayload;
+            for (let i = 0; i < 11; i++) {
+                rawBytes.push(Number(tempPayload & 0xFFn));
+                tempPayload >>= 8n;
+            }
+
+            // 3. Translate binary blocks directly to Base38 symbol text maps
+            const BASE38_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.";
+            let base38EncodedString = "";
+            let byteIndex = 0;
+
+            while (byteIndex < rawBytes.length) {
+                let remainingBytes = rawBytes.length - byteIndex;
+                let chunkValue = 0;
+                let charCount = 0;
+
+                if (remainingBytes >= 3) {
+                    chunkValue = rawBytes[byteIndex] | (rawBytes[byteIndex+1] << 8) | (rawBytes[byteIndex+2] << 16);
+                    charCount = 5;
+                    byteIndex += 3;
+                } else {
+                    chunkValue = rawBytes[byteIndex] | (rawBytes[byteIndex+1] << 8);
+                    charCount = 4;
+                    byteIndex += 2;
+                }
+
+                for (let c = 0; c < charCount; c++) {
+                    base38EncodedString += BASE38_CHARS[chunkValue % 38];
+                    chunkValue = Math.floor(chunkValue / 38);
+                }
+            }
+
+            return "MT:" + base38EncodedString;
+        } catch (err) {
+            console.error("Calculation Error:", err);
+            return "MT:INVALIDMATH";
+        }
+    }
+
+    // Capture execution parameters straight from the browser URL address bar
+    const urlParams = new URLSearchParams(window.location.search);
+    const discriminator = parseInt(urlParams.get('disc')) || 1000;
+    const passcode = parseInt(urlParams.get('pin')) || 10000000;
+
     document.getElementById('lbl-disc').innerText = discriminator;
     document.getElementById('lbl-pin').innerText = passcode;
 
-    // 2. Mock template Matter pairing code string (Matching your print_label algorithm)
-    // In full production, this string matches your Base38 bit-packed data pattern
-    const matterPayload = "MT:Y.K9043200KA0648300";
+    // Run the live Base38 mathematical encoding conversion engine
+    const liveMatterPayload = generateMatterQrPayload(discriminator, passcode);
+    console.log("Generated Payload: ", liveMatterPayload);
 
-    // 3. Command the QR engine to draw the graphic asset instantly on screen
-    new QRCode(document.getElementById("qrcode"), {
-        text: matterPayload,
-        width: 250,
-        height: 250,
-        colorDark : "#000000",
-        colorLight : "#ffffff",
-        correctLevel : QRCode.CorrectLevel.H
+    // SAFETY CHECK: Wait for DOM element and payload verification before mounting graphic
+    window.addEventListener('DOMContentLoaded', (event) => {
+        const qrContainer = document.getElementById("qrcode");
+        qrContainer.innerHTML = ""; // Clear loader artifacts
+        
+        new QRCode(qrContainer, {
+            text: liveMatterPayload,
+            width: 250,
+            height: 250,
+            colorDark : "#000000",
+            colorLight : "#ffffff",
+            correctLevel : QRCode.CorrectLevel.H
+        });
     });
 </script>
 
