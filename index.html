@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matter Onboarding Station</title>
+    <!-- Pull in a standard, open-source QR code rendering engine safely -->
+    <script src="https://cloudflare.com"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            text-align: center;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 40px;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            display: inline-block;
+            max-width: 400px;
+        }
+        h2 { color: #2c3e50; margin-bottom: 5px; }
+        .meta-text { font-size: 14px; color: #7f8c8d; margin-bottom: 20px; }
+        #qrcode {
+            margin: 20px auto;
+            padding: 15px;
+            background: white;
+            display: inline-block;
+            border: 2px solid #bdc3c7;
+            border-radius: 8px;
+        }
+        .info-box {
+            background-color: #ecf0f1;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 15px;
+            color: #2c3e50;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Open Sesame</h2>
+    <div class="meta-text">Ecosystem Onboarding Dashboard</div>
+    
+    <!-- This is where the dynamic QR code will be injected -->
+    <div id="qrcode"></div>
+    
+    <div class="info-box">
+        <strong>Discriminator:</strong> <span id="lbl-disc">--</span><br>
+        <strong>Setup Passcode:</strong> <span id="lbl-pin">--</span>
+    </div>
+</div>
+
+<script>
+    // 1. Grab the dynamic parameters passed out of the flash_device.bat link
+    const urlParams = new URLSearchParams(window.location.search);
+    const discriminator = urlParams.get('disc') || '1000';
+    const passcode = urlParams.get('pin') || '10000000';
+
+    // Update the human-readable text labels at the bottom of the page
+    document.getElementById('lbl-disc').innerText = discriminator;
+    document.getElementById('lbl-pin').innerText = passcode;
+
+    // 2. Mock template Matter pairing code string (Matching your print_label algorithm)
+    // In full production, this string matches your Base38 bit-packed data pattern
+    const matterPayload = "MT:Y.K9043200KA0648300";
+
+    // 3. Command the QR engine to draw the graphic asset instantly on screen
+    new QRCode(document.getElementById("qrcode"), {
+        text: matterPayload,
+        width: 250,
+        height: 250,
+        colorDark : "#000000",
+        colorLight : "#ffffff",
+        correctLevel : QRCode.CorrectLevel.H
+    });
+</script>
+
+</body>
+</html>
