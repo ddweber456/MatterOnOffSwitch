@@ -54,6 +54,6 @@ python print_label.py --discriminator %DISCRIMINATOR% --passcode %PASSCODE% --ma
 
 echo -------------------------------------------------------
 echo 👉 BROWSER GENERATION LINK FOR THE BOX PAIRING QR CODE:
-echo https://%ddweber456%.github.io/MatterOnOffSwitch/?disc=%DISCRIMINATOR%&pin=%PASSCODE%
+echo https://ddweber456.github.io/MatterOnOffSwitch/?disc=%DISCRIMINATOR%&pin=%PASSCODE%
 echo -------------------------------------------------------
 pause
