@@ -1,0 +1,14 @@
+C:\OpenSesame_Production\
+│
+├── OpenSesame_C5_Production.bin    <-- Your compiled main system firmware
+│
+├── flash_device.bat                <-- The Windows pipeline script
+├── mfg_tool.py                     <-- The NVS binary packer & QA csv logger
+├── print_label.py                  <-- The 4-quadrant thermal print layout engine
+│
+├── logo.png                        <-- Your company/product graphic logo file
+│
+└── [Generated Automatically During Runtime]
+    ├── factory_data.bin            <-- Compiled unique per-unit security binary
+    ├── print_job.pdf               <-- Temporary/last generated printable label format
+    └── production_log.csv          <-- Your permanent local master quality spreadsheet
