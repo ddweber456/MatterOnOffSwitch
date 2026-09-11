@@ -44,7 +44,7 @@ python mfg_tool.py --discriminator %DISCRIMINATOR% --passcode %PASSCODE% --mac %
 %ESPTOOL_PATH% --chip esp32c5 --port %COM_PORT% erase_flash
 
 :: Stream main system binary assets and unique manufacturing data payloads to target blocks
-%ESPTOOL_PATH% --chip esp32c5 --port %COM_PORT% --baud %BAUD_RATE% write_flash -z 0x0 %MAIN_FIRMWARE% 0x340000 factory_data.bin
+%ESPTOOL_PATH% --chip esp32c5 --port %COM_PORT% --baud %BAUD_RATE% write_flash -z 0x0 %MAIN_FIRMWARE% 0xB00000 factory_data.bin
 
 echo -------------------------------------------------------
 echo 🖨️  GENERATING PRODUCTION THERMAL LABEL PRINT JOB...

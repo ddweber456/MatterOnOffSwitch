@@ -1,6 +1,6 @@
 #include <Matter.h>
 #include <WiFi.h>
-#include <Preferences.h> // Required for accessing ESP32 local Non-Volatile Storage (NVS)
+#include <Preferences.h> // Handles communication with local Non-Volatile Storage (NVS)
 
 // ==========================================
 // 🔌 HARDWARE PROFILE DEFINITIONS
@@ -12,24 +12,29 @@ const int STATUS_LED_PIN = 2;          // System state status visual indicator L
 // ==========================================
 // ⏱️ ASYNCHRONOUS TIMER CONFIGURATIONS
 // ==========================================
-const unsigned long PULSE_DURATION = 600; // Exact momentary pulse window in milliseconds
-const unsigned long DEBOUNCE_DELAY = 50;   // Mechanical switch debounce threshold
+const unsigned long PULSE_DURATION = 600; // Momentary output pulse length in milliseconds
+const unsigned long DEBOUNCE_DELAY = 50;   // Mechanical switch debounce input validation window
 
 bool pulseIsActive = false;
 unsigned long pulseStartTimestamp = 0;
 
-int lastButtonState = HIGH;      // Assumes INPUT_PULLUP (HIGH = idle)
+int lastButtonState = HIGH;      // Assumes hardware INPUT_PULLUP state
 unsigned long lastDebounceTime = 0;
 
 // ==========================================
 // 🏛️ SMART HOME INSTANTIATIONS
 // ==========================================
-MatterOnOffPluginUnit openSesameSwitch; 
+MatterOnOffPlugin openSesameSwitch; 
 Preferences prefs;                     
+
+// State Tracking Flag for Ecosystem Transactions
+bool lastEcosystemState = false;
 
 void setup() {
   Serial.begin(115200);
+  delay(500); // Small stability buffer for the serial terminal on cold boot
 
+  // Initialize Pin States instantly to prevent high-impedance floating logic triggers
   pinMode(MOSFET_GATE_PIN, OUTPUT);
   digitalWrite(MOSFET_GATE_PIN, LOW); 
   
@@ -38,32 +43,30 @@ void setup() {
 
   pinMode(PHYSICAL_BUTTON_PIN, INPUT_PULLUP); 
 
-  // Default fallback name string array if flash entry reading fails
-  String runtimeDeviceName = "Open Sesame"; 
-
-  // Open the NVS space named "matter" in read-only mode to fetch the identity entry
+  // Read local variables simply to print configuration traces to the factory Serial log console
+  String runtimeDeviceName = "Open Sesame (Dev Fallback)"; 
   prefs.begin("matter", true);
   if (prefs.isKey("device_name")) {
     runtimeDeviceName = prefs.getString("device_name");
   }
   prefs.end();
 
-  // 1. Initialize Dual-Radio Matter Core
-  Matter.begin();
-  
-  // 2. Name the device dynamically using values parsed out of local NV flash memory spaces
+  // 1. Initialize your endpoint plugins BEFORE calling the main stack begin routine
   openSesameSwitch.begin();
-  openSesameSwitch.setProductName(runtimeDeviceName.c_str());
-  openSesameSwitch.setManufacturerName("Custom Hardware Solutions");
+  lastEcosystemState = openSesameSwitch.getOnOff();
+
+  // 2. Core Matter Stack Initialization Protocol
+  // The underlying engine automatically reads properties from your flashed factory partitions
+  Matter.begin();
 
   Serial.println("==================================================");
-  Serial.print("DYNAMIC DEVICE IDENTITY: "); Serial.println(runtimeDeviceName);
-  Serial.println("PROTOCOLS: Matter over Wi-Fi + Matter over Thread Enabled"); 
+  Serial.print("MONITOR REGISTERED IDENTITY: "); Serial.println(runtimeDeviceName);
+  Serial.println("PROTOCOLS: Matter over Wi-Fi + Matter over Thread Configured"); 
   Serial.println("==================================================");
 }
 
 void loop() {
-  // --- PART 1: Physical Mechanical Button Input (Debounced) ---
+  // --- PART 1: Physical Mechanical Button Input (Debounced Validation) ---
   int reading = digitalRead(PHYSICAL_BUTTON_PIN);
 
   if (reading != lastButtonState) {
@@ -73,45 +76,51 @@ void loop() {
   if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
     if (reading == LOW && !pulseIsActive) {
       triggerPulse();
-      openSesameSwitch.setOnOff(true); 
-      Serial.println("[Hardware Event] Manual Button Triggered!");
+      openSesameSwitch.setOnOff(true); // Broadcast active pulse state out to Matter fabrics
+      lastEcosystemState = true;
+      Serial.println("[Hardware Event] Manual Button State Change Acknowledged");
     }
   }
   lastButtonState = reading;
 
-  // --- PART 2: Local Matter Ecosystem Inputs ---
-  if (openSesameSwitch.hasChanged()) {
-    bool targetState = openSesameSwitch.getOnOff();
+  // --- PART 2: Inbound Ecosystem Transactions (Alexa, Google, Apple Home) ---
+  bool currentEcosystemState = openSesameSwitch.getOnOff();
+  if (currentEcosystemState != lastEcosystemState) {
+    lastEcosystemState = currentEcosystemState;
     
-    if (targetState && !pulseIsActive) {
+    if (currentEcosystemState && !pulseIsActive) {
       triggerPulse();
-      Serial.println("[Local Network Event] Ecosystem App ON Command Acknowledged");
+      Serial.println("[Network Event] Ecosystem App ON Command Executed");
     } 
-    else if (!targetState && pulseIsActive) {
+    else if (!currentEcosystemState && pulseIsActive) {
       cancelPulse();
-      Serial.println("[Local Network Event] Overriding Loop: App Force-Canceled Pulse");
+      Serial.println("[Network Event] Ecosystem App Force-Canceled Active Loop");
     }
   }
 
-  // --- PART 3: Non-Blocking Pulse Execution Loop & Notification Reset ---
+  // --- PART 3: Asynchronous Non-Blocking Pulse Reset Loop ---
   if (pulseIsActive) {
     if (millis() - pulseStartTimestamp >= PULSE_DURATION) {
       cancelPulse();
-      openSesameSwitch.setOnOff(false); 
-      Serial.println("[Timer Event] 600ms Exhausted -> Resetting System Output to LOW");
+      openSesameSwitch.setOnOff(false); // Synchronize dashboard state graphics back to OFF state
+      lastEcosystemState = false;
+      Serial.println("[Timer Event] 600ms固定 -> Returning Output Channel to LOW");
     }
   }
 }
 
+// ==========================================
+// ⚙️ CORE PULSE OPERATION ROUTINES
+// ==========================================
 void triggerPulse() {
-  digitalWrite(MOSFET_GATE_PIN, HIGH); 
-  digitalWrite(STATUS_LED_PIN, HIGH);   
+  digitalWrite(MOSFET_GATE_PIN, HIGH); // Output 3.3V bias to logic-level MOSFET Gate
+  digitalWrite(STATUS_LED_PIN, HIGH);   // Ignite diagnostic visual validation indicator LED
   pulseIsActive = true;
   pulseStartTimestamp = millis();
 }
 
 void cancelPulse() {
-  digitalWrite(MOSFET_GATE_PIN, LOW);  
-  digitalWrite(STATUS_LED_PIN, LOW);   
+  digitalWrite(MOSFET_GATE_PIN, LOW);  // Safely clamp output gate back to Ground level
+  digitalWrite(STATUS_LED_PIN, LOW);   // Extinguish diagnostic LED
   pulseIsActive = false;
 }
