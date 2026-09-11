@@ -3,7 +3,7 @@ SETLOCAL EnableDelayedExpansion
 SET COM_PORT=COM4
 SET BAUD_RATE=921600
 SET MAIN_FIRMWARE=OpenSesame_C5_Production.bin
-SET ESPTOOL_PATH="C:\Users\Admin\AppData\Local\Arduino15\packages\esp32\tools\esptool_py\4.6\esptool.exe"
+SET ESPTOOL_PATH="C:\Users\David\AppData\Local\Arduino15\packages\esp32\tools\esptool_py\5.3.1\esptool.exe"
 
 echo -------------------------------------------------------
 echo 🔍 Interrogating Silicon Hardware eFuses via Serial Port...
