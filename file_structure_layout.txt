@@ -1,14 +1,19 @@
 C:\OpenSesame_Production\
 │
-├── OpenSesame_C5_Production.bin    <-- Your compiled main system firmware
+├── OpenSesame_C5_Production.bin   <-- Your compiled main system firmware
 │
-├── flash_device.bat                <-- The Windows pipeline script
-├── mfg_tool.py                     <-- The NVS binary packer & QA csv logger
-├── print_label.py                  <-- The 4-quadrant thermal print layout engine
+├── flash_device.bat               <-- The Windows pipeline script
+├── mfg_tool.py                    <-- The NVS binary packer & QA csv logger
+├── print_label.py                 <-- The 4-quadrant thermal print layout engine
+├── index.html                     <-- Onboarding webpage (hosted separately via GitHub
+│                                       Pages - not used by flash_device.bat directly,
+│                                       but its printed link points here)
 │
-├── logo.png                        <-- Your company/product graphic logo file
+├── logo.png                       <-- Your company/product graphic logo file
 │
 └── [Generated Automatically During Runtime]
-    ├── factory_data.bin            <-- Compiled unique per-unit security binary
-    ├── print_job.pdf               <-- Temporary/last generated printable label format
-    └── production_log.csv          <-- Your permanent local master quality spreadsheet
+    ├── factory_data.bin           <-- Compiled unique per-unit security binary
+    ├── temp_factory_layout.csv    <-- Transient NVS source map, deleted after each run
+    ├── print_job.pdf              <-- Temporary/last generated printable label format
+    ├── temp_qr.png                <-- Transient QR image, deleted after each run
+    └── production_log.csv         <-- Your permanent local master quality spreadsheet
