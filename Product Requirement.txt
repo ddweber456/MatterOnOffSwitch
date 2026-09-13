@@ -1,104 +1,249 @@
-Here is the updated Product Requirement & Engineering Specification document, reflecting our completed manufacturing setup, chip-level identity extraction, and quality control auditing loops.
-You can save this version to lock down the official project definition.
-------------------------------
-## Product Requirement & Engineering Specification## Project Name: Open Sesame
-Document Revision: 1.2
-Target Production Volume: < 500 units/annum
-Core Functionality: Universal Matter over Wi-Fi / Thread Momentary MOSFET Controller
-------------------------------
-## 1. Product Overview & Architectural Intent
-Open Sesame is a low-latency, commercial-grade smart home controller designed to connect natively to all primary smart home ecosystems (including Amazon Alexa, Apple HomeKit, Google Home, and Home Assistant).
-The device features dual-transport capabilities (Matter-over-Wi-Fi and Matter-over-Thread), allowing it to work seamlessly with old-generation smart displays (e.g., Echo Show 8 Gen 1 & 2) and modern Thread-enabled boundary routing displays (e.g., Echo Show 8 Gen 3 & 4).
-Upon activation via local network app interfaces or a physical integrated tactile button, the hardware generates a non-blocking momentary pulse to switch a low-side N-Channel logic-level MOSFET channel for exactly 600 milliseconds, immediately resetting to a safe "OFF" state across all network platforms.
-------------------------------
-## 2. Technical & Hardware Specifications## 2.1 Core System-on-Chip (SoC)
+================================================================
+ Product Requirement & Engineering Specification
+ Project Name: Open Sesame
+ Document Revision: 1.3
+ Target Production Volume: < 500 units/annum
+ Core Functionality: Universal Matter over Wi-Fi / Thread Momentary MOSFET Controller
+================================================================
 
-* Module Platform: ESP32-C5-MINI-1
-* Wireless Capabilities:
-* Dual-Band Wi-Fi 6 (2.4 GHz & 5 GHz) [802.11ax]
-   * Bluetooth 5 (LE) for secure, out-of-band commissioning
-   * 802.15.4 Radio (OpenThread / Zigbee stack compatible)
-* Memory Allocations: Minimum 8MB SPI Flash with active Flash Encryption configurations enabled.
-* RF Configuration: Software Coexistence must be actively configured within the firmware profile to prevent overlapping Wi-Fi 6 transmissions from blinding the 802.15.4 Thread radio receptor elements.
-
-## 2.2 Electrical Hardware Architecture & Pin Mapping
-
-                  		+-------------------+
-
-                		|  ESP32-C5-MINI-1  |
-                 	        |                   |
-    [3.3V Tactile Button] ----->| GPIO 5   GPIO 4   |-----> [150 Ohm] -----> Gate (MOSFET)
-
-              |                 |                   |                          |
-          [0.1 uF]              |          GPIO 2   |-----> [LED Indicator]   [10k Ohm]
-
-              |                 +-------------------+                          |
-             GND                                                              GND
+Revision 1.3 changelog (vs. 1.2):
+  - Corrected Section 3.1/3.2: the firmware identity mechanism is the Arduino Matter
+    library's runtime setters (Matter.setDeviceName / Matter.setSetupDiscriminator),
+    not a function called "Matter.enableFactoryDataProvider" - that name does not
+    appear in the library and was likely a documentation error.
+  - Corrected Section 4.3: the discriminator is now deterministically derived from
+    the unit's MAC address (by both the firmware and the manufacturing tooling),
+    not randomly generated per unit.
+  - Corrected the discriminator's valid range to the true 12-bit Matter range
+    (0-4095). The prior 1000-4095 floor was an arbitrary tooling constraint, not
+    a protocol requirement, and would have rejected roughly a quarter of
+    otherwise-valid MAC-derived values.
+  - Corrected the factory partition flash offset to match the actual
+    flash_device.bat script (0xB00000 rather than 0x340000).
+  - Added Section 6: Known Open Items, documenting the one thing in this pipeline
+    that is not yet verified against real hardware (see below).
 
 
-* GPIO 4 (Signal Output): Dedicated logic-level driver line directly linked to the gate of an external N-Channel MOSFET.
-* GPIO 5 (Manual Override Input): Bound to a momentary hardware tactile button. Utilizes software active-low INPUT_PULLUP definitions.
-* GPIO 2 (Visual Status Output): Low-side digital driver pin bound to an onboard diagnostic Surface Mount Device (SMD) LED.
+--------------------------------------------------------------
+1. Product Overview & Architectural Intent
+--------------------------------------------------------------
 
-## Hardware Fail-Safe Assertions:
+Open Sesame is a low-latency, commercial-grade smart home controller designed to
+connect natively to all primary smart home ecosystems (including Amazon Alexa,
+Apple HomeKit, Google Home, and Home Assistant).
 
-* Gate Isolation: A 150Ω to 220Ω resistor must sit in series directly between GPIO 4 and the MOSFET gate pin to suppress sudden capacitive inrush current spikes.
-* Floating Gate Mitigation: A 10kΩ pull-down resistor must bridge the physical path between the MOSFET gate and Ground (GND). This guarantees that during chip boot sequences, high-impedance floating logic states do not trigger accidental switch execution.
-* EMI Suppression: A 0.1µF ceramic capacitor should sit in parallel between GPIO 5 and GND right at the chip boundary to suppress environmental mechanical button contact bounce and EMI feedback.
+The device features dual-transport capabilities (Matter-over-Wi-Fi and
+Matter-over-Thread), allowing it to work seamlessly with old-generation smart
+displays (e.g., Echo Show 8 Gen 1 & 2) and modern Thread-enabled boundary routing
+displays (e.g., Echo Show 8 Gen 3 & 4).
 
-------------------------------
-## 3. Firmware Design & Behavior Blueprint## 3.1 Firmware Core Framework
-
-* Development Platform: Arduino Core for ESP32 (v3.0.0 or later).
-* Dynamic Identity Extractor: Utilizes the Preferences.h library framework to scan the matter partition space.
-* Ecosystem Identity Binding: Configured as a native MatterOnOffPluginUnit. Instead of assigning a static hardware string literal, the dynamic device name string is read dynamically from non-volatile flash storage at startup (e.g., "Open Sesame [Discriminator]").
-
-## 3.2 Program Execution Flow
-
-* Boot Logic: Pins are instantly driven low. The device opens the local NVS storage space in read-only mode to extract the custom identity key (device_name). It then initializes the core Matter stack via Matter.enableFactoryDataProvider(true).
-* Asynchronous Listening Loop: The main loop monitors physical button actions alongside inbound network transactions via Wi-Fi or Thread channels.
-* Pulse Cycle: When an execution flag is tripped, GPIO 4 and GPIO 2 are driven HIGH. The firmware records a starting millisecond timestamp (millis()).
-* Asynchronous Timeout Handling: Rather than pausing chip operations with delay(), execution cycles run unhindered. When millis() - startTimestamp >= 600, GPIO 4 and GPIO 2 drop back to LOW.
-* State Machine Synchronicity: The firmware immediately triggers an outbound state execution update (openSesameSwitch.setOnOff(false)), enforcing synchronized graphical alignment inside Apple, Google, and Amazon smart home dashboard apps.
-
-------------------------------
-## 4. Production, Security, & Flashing Infrastructure## 4.1 Low-Volume Automated Provisioning Flow
-For low-volume production lines (< 500 units/annum), unique credentials and dynamic identifiers are programmed into individual units using a localized Windows batch installer wrapper pipeline script interacting with custom python terminal scripts.
-## 4.2 Silicon Feature Extraction & Auditing
-Before compilation and flashing steps execute, the host pipeline uses esptool.exe to interrogate the chip's factory-burned eFuse blocks. It captures the unique hardware MAC Address and pipes it cleanly down the tooling architecture.
-## 4.3 Factory Storage Allocation & Formatting
-Security credentials and metadata keys are stored safely in an isolated Non-Volatile Storage (NVS) manufacturing binary payload package (factory_data.bin), which is targeted to write to a defined flash offset space (0x340000).
-
-* SetupDiscriminator: Unique 12-bit identifier tag (1000 to 4095) calculated dynamically during script invocation.
-* SetupPasscode: Distinct 8-digit numerical security cluster sequence avoiding standard generic repetition patterns (10000000 to 99999999).
-* DeviceName String: Formatted inside the generator pipeline script as Open Sesame [Discriminator] and packed as a string data type inside the matter namespace row structure.
-
-## 4.4 Quality Assurance Serialization Logging
-The system maintains a local data trace index file named production_log.csv. For every processed hardware module, a permanent audit row is appended with the following tracking profile values:
-
-   1. Timestamp: Universal real-time stamp notation (YYYY-MM-DD HH:MM:SS) pulled at the millisecond of compilation.
-   2. MAC Address: Hardware unique 6-byte hexadecimal unique identification string.
-   3. Device Name: The customized, discriminator-appended identity string.
-   4. Discriminator: Calculated 12-bit credential value.
-   5. Passcode: Assigned 8-digit commissioning passcode security payload.
-   6. Status: Process confirmation flag (SUCCESS).
-
-## 4.5 Automated Print Label Protocol
-Upon successful completion of the hardware flash step, the script triggers an automated printing asset generation cycle to compile a 4" x 2" thermal label. The layout is split into a precise 4-quadrant payload arrangement layout:
-
-* Quadrant 1 (Top Left): High-contrast graphic manufacturing logo file (logo.png).
-* Quadrant 2 (Center Left): Main scannable Matter onboarding pairing QR code matching flashed parameters (1.1" wide).
-* Quadrant 3 (Bottom Left): Human-readable, centered text string showing the unique chip MAC Address (MAC: XX:XX:XX:XX:XX:XX).
-* Quadrant 4 (Right Column vertical stack): Three identical smaller duplicate versions of the primary onboarding QR code (0.6" wide), assigned for hardware enclosure indexing, paperwork trail log records, and external packaging validation checks.
-
-------------------------------
-## 5. Packaging & Fulfillment Logistics
-During factory programming execution, the printing layout file is generated dynamically and sent directly to the local default thermal desktop printing hardware spooler queue.
-The adhesive thermal label is pulled fresh from the terminal unit and systematically placed upon the hardware container box along with the explicit 8-digit textual passcode string to act as a fallback connection vector should camera optics fail.
-------------------------------
-Now that the master requirements documentation is updated, where should we take the testing setup next?
-
-* Do you want to review hardware integration validation steps for testing the MOSFET pulse output?
-* Do you need assistance mapping out the production directory layout to guarantee the batch paths execute flawlessly on the test system?
+Upon activation - via local network app interfaces or a physical integrated
+tactile button - the hardware generates a non-blocking momentary pulse to switch
+a low-side N-Channel logic-level MOSFET channel for exactly 600 milliseconds,
+immediately resetting to a safe "OFF" state across all network platforms.
 
 
+--------------------------------------------------------------
+2. Technical & Hardware Specifications
+--------------------------------------------------------------
+
+2.1 Core System-on-Chip (SoC)
+
+  - Module Platform: ESP32-C5-MINI-1
+  - Wireless Capabilities:
+      - Dual-Band Wi-Fi 6 (2.4 GHz & 5 GHz) [802.11ax]
+      - Bluetooth 5 (LE) for secure, out-of-band commissioning
+      - 802.15.4 Radio (OpenThread / Zigbee stack compatible)
+  - Memory Allocations: Minimum 8MB SPI Flash with active Flash Encryption
+    configurations enabled.
+  - RF Configuration: Software Coexistence must be actively configured within the
+    firmware profile to prevent overlapping Wi-Fi 6 transmissions from blinding
+    the 802.15.4 Thread radio receptor elements.
+
+2.2 Electrical Hardware Architecture & Pin Mapping
+
+    +-------------------+
+    |  ESP32-C5-MINI-1  |
+    |                   |
+    [3.3V Tactile Button] ----->| GPIO 5      GPIO 4 |-----> [150 Ohm] -----> Gate (MOSFET)
+    |                   |    |            |
+    [0.1 uF]            |  GPIO 2      |-----> [LED Indicator]  [10k Ohm]
+    |    +-------------------+                        |
+   GND                                                GND
+
+  - GPIO 4 (Signal Output): Dedicated logic-level driver line directly linked to
+    the gate of an external N-Channel MOSFET.
+  - GPIO 5 (Manual Override Input): Bound to a momentary hardware tactile button.
+    Utilizes software active-low INPUT_PULLUP definitions.
+  - GPIO 2 (Visual Status Output): Low-side digital driver pin bound to an onboard
+    diagnostic Surface Mount Device (SMD) LED.
+
+  Hardware Fail-Safe Assertions:
+    - Gate Isolation: A 150 Ohm to 220 Ohm resistor must sit in series directly
+      between GPIO 4 and the MOSFET gate pin to suppress sudden capacitive
+      inrush current spikes.
+    - Floating Gate Mitigation: A 10k Ohm pull-down resistor must bridge the
+      physical path between the MOSFET gate and Ground (GND). This guarantees
+      that during chip boot sequences, high-impedance floating logic states do
+      not trigger accidental switch execution.
+    - EMI Suppression: A 0.1uF ceramic capacitor should sit in parallel between
+      GPIO 5 and GND right at the chip boundary to suppress environmental
+      mechanical button contact bounce and EMI feedback.
+
+
+--------------------------------------------------------------
+3. Firmware Design & Behavior Blueprint
+--------------------------------------------------------------
+
+3.1 Firmware Core Framework
+
+  - Development Platform: Arduino Core for ESP32 (v3.0.0 or later).
+  - Dynamic Identity Generator: On first boot, the firmware derives a unique
+    setup discriminator from the chip's own MAC address (last two octets,
+    masked to 12 bits) and builds a device name of the form
+    "Open Sesame [Discriminator]". Both values are persisted via the
+    Preferences library (NVS, "matter" namespace) so they stay stable across
+    reboots, and are regenerated only if that NVS data is missing.
+  - Ecosystem Identity Binding: The generated name and discriminator are handed
+    to the Matter stack via Matter.setDeviceName() and
+    Matter.setSetupDiscriminator(), which write the Basic Information cluster's
+    NodeLabel and the commissioning discriminator respectively. These setters
+    must be called before Matter.begin() - the library logs a warning and
+    ignores the call if invoked afterward.
+  - Manufacturing tooling (mfg_tool.py / flash_device.bat) computes the exact
+    same MAC-derived discriminator independently, so the value printed on the
+    production label and encoded in its QR code always matches what the
+    device will actually advertise - the two never need to communicate the
+    value to each other at flash time.
+
+3.2 Program Execution Flow
+
+  - Boot Logic: Pins are instantly driven to a safe LOW state. The firmware
+    checks its own NVS store for a previously generated identity; if absent,
+    it derives one from the MAC address and saves it before continuing.
+  - Asynchronous Listening Loop: The main loop monitors physical button state
+    (debounced, edge-triggered - a single press produces exactly one pulse,
+    even if the button is held down) alongside inbound network transactions
+    via Wi-Fi or Thread channels.
+  - Pulse Cycle: When an execution flag is tripped, GPIO 4 and GPIO 2 are
+    driven HIGH. The firmware records a starting millisecond timestamp
+    (millis()).
+  - Asynchronous Timeout Handling: Rather than pausing chip operations with
+    delay(), execution cycles run unhindered. When millis() - startTimestamp
+    >= 600, GPIO 4 and GPIO 2 drop back to LOW.
+  - State Machine Synchronicity: The firmware immediately triggers an outbound
+    state execution update (openSesameSwitch.setOnOff(false)), enforcing
+    synchronized graphical alignment inside Apple, Google, and Amazon smart
+    home dashboard apps.
+  - Post-Commissioning Renames: If the device is renamed inside an ecosystem
+    app after pairing (NodeLabel write), the Matter/CHIP stack persists that
+    change on its own, independent of the firmware's own NVS copy used for
+    first-boot generation. No firmware action is required for a rename to
+    survive a reboot.
+
+
+--------------------------------------------------------------
+4. Production, Security, & Flashing Infrastructure
+--------------------------------------------------------------
+
+4.1 Low-Volume Automated Provisioning Flow
+
+For low-volume production lines (< 500 units/annum), unique credentials are
+programmed into individual units using a localized Windows batch installer
+wrapper pipeline script (flash_device.bat) interacting with custom Python
+terminal scripts (mfg_tool.py, print_label.py).
+
+4.2 Silicon Feature Extraction & Auditing
+
+Before compilation and flashing steps execute, the host pipeline uses
+esptool.exe to interrogate the chip's factory-burned eFuse blocks. It captures
+the unique hardware MAC Address and pipes it cleanly down the tooling
+architecture - both to compute the discriminator described in Section 3.1,
+and for the passcode/QA-log steps below.
+
+4.3 Factory Storage Allocation & Formatting
+
+Security credentials and metadata keys are packaged into an NVS-formatted
+binary payload (factory_data.bin), which flash_device.bat writes to flash
+offset 0xB00000. This offset must match the target board's actual partition
+table - see Section 6, Known Open Items.
+
+  - SetupDiscriminator: 12-bit identifier (0-4095), deterministically derived
+    from the unit's MAC address (see Section 3.1) - not randomly assigned.
+  - SetupPasscode: Distinct 8-digit numerical security cluster sequence
+    avoiding standard generic repetition patterns (10000000 to 99999999).
+    Unlike the discriminator, this has no MAC-derivable equivalent, so it
+    remains randomly generated per unit at flash time.
+  - DeviceName String: Formatted inside the generator pipeline script as
+    "Open Sesame [Discriminator]" and packed as a string data type inside the
+    matter namespace row structure - identical to what the firmware generates
+    for itself on first boot.
+
+4.4 Quality Assurance Serialization Logging
+
+The system maintains a local data trace index file named production_log.csv.
+For every processed hardware module, a permanent audit row is appended with
+the following tracking profile values:
+
+  1. Timestamp: Universal real-time stamp notation (YYYY-MM-DD HH:MM:SS)
+     pulled at the moment of logging.
+  2. MAC Address: Hardware unique 6-byte hexadecimal unique identification
+     string.
+  3. Device Name: The customized, discriminator-appended identity string.
+  4. Discriminator: The MAC-derived 12-bit credential value.
+  5. Passcode: Assigned 8-digit commissioning passcode security payload.
+  6. Status: Process confirmation flag (SUCCESS).
+
+4.5 Automated Print Label Protocol
+
+Upon successful completion of the hardware flash step, the script triggers an
+automated printing asset generation cycle to compile a 4" x 2" thermal label.
+The layout is split into a precise 4-quadrant payload arrangement:
+
+  - Quadrant 1 (Top Left): High-contrast graphic manufacturing logo file
+    (logo.png).
+  - Quadrant 2 (Center Left): Main scannable Matter onboarding pairing QR
+    code matching flashed parameters (1.1" wide).
+  - Quadrant 3 (Bottom Left): Human-readable, centered text string showing the
+    unique chip MAC Address (MAC: XX:XX:XX:XX:XX:XX).
+  - Quadrant 4 (Right Column, vertical stack): Three identical smaller
+    duplicate versions of the primary onboarding QR code (0.6" wide), for
+    hardware enclosure indexing, paperwork trail log records, and external
+    packaging validation checks.
+
+
+--------------------------------------------------------------
+5. Packaging & Fulfillment Logistics
+--------------------------------------------------------------
+
+During factory programming execution, the printing layout file is generated
+dynamically and sent directly to the local default thermal desktop printing
+hardware spooler queue.
+
+The adhesive thermal label is pulled fresh from the terminal unit and
+systematically placed upon the hardware container box along with the explicit
+8-digit textual passcode string, to act as a fallback connection vector should
+camera optics fail.
+
+
+--------------------------------------------------------------
+6. Known Open Items
+--------------------------------------------------------------
+
+These are gaps identified during the 1.3 review that haven't been verified
+against real hardware yet:
+
+  - Passcode delivery path (highest priority): the firmware has no runtime
+    setter call for the setup passcode (unlike DeviceName and
+    SetupDiscriminator, which are set explicitly via Matter.setDeviceName()
+    and Matter.setSetupDiscriminator() before Matter.begin()). Whether
+    Matter.begin() actually reads the passcode out of factory_data.bin at
+    0xB00000 - or falls back to the Arduino library's default test passcode
+    (20202021) - has not been confirmed. Test commissioning a unit using the
+    passcode printed on its own label before relying on this in production.
+  - Factory partition offset (0xB00000): confirm this matches the "nvs" (or
+    equivalent) partition address in the actual partition table/scheme
+    selected for this board in the Arduino IDE (Tools > Partition Scheme).
+    If it doesn't, factory_data.bin is being written to unused flash space
+    and none of its contents - including the passcode above - are reachable
+    by the running firmware at all.

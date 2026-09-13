@@ -1,4 +1,5 @@
-factory_data.bin 
-print_job.pdf 
-production_log.csv 
+factory_data.bin
+print_job.pdf
+production_log.csv
 temp_qr.png
+temp_factory_layout.csv
