@@ -45,11 +45,14 @@ void setup() {
   // ==========================================
   // 🏷️ FIRST-BOOT IDENTITY GENERATION
   // Generates a MAC-derived discriminator + device name exactly once,
-  // then persists it in NVS so it stays stable across reboots. This is
-  // what actually makes each unit show up with a distinct name in
-  // Alexa, Google Home, Apple Home, and Home Assistant - the earlier
-  // version read a "device_name" NVS key but never handed it to the
-  // Matter stack, so it had no effect on what ecosystems displayed.
+  // then persists it in NVS so it stays stable across reboots. NOTE: as of
+  // esp32 Arduino core 3.3.11 (currently pinned - see build notes), this
+  // generated identity is computed and persisted but NOT yet handed to the
+  // Matter stack - see the TODO block below. Every unit currently
+  // commissions with the Matter library's shared default name/discriminator,
+  // NOT the value generated/printed here or by mfg_tool.py. Do not rely on
+  // printed labels/QR codes matching this generated value until that TODO
+  // is resolved.
   // ==========================================
   String runtimeDeviceName = "Open Sesame (Dev Fallback)";
   uint16_t runtimeDiscriminator = 0xF00; // library's own test-default, used only if generation fails
@@ -69,10 +72,26 @@ void setup() {
   }
   prefs.end();
 
+  // ------------------------------------------------------------------
+  // TODO(upstream): Matter.setDeviceName() / Matter.setSetupDiscriminator()
+  // are NOT available in the stable esp32 Arduino core we're pinned to
+  // (3.3.11). They only exist on the arduino-esp32 dev/master branch, added
+  // by the still-unmerged MatterIdentity feature (tracks upstream PR #12857,
+  // closing issue #12293 "Change Matter Discriminator value").
+  //
+  // Re-enable the two calls below once that API ships in a release we
+  // upgrade to. Until then:
+  //   - Every unit advertises the Matter library's shared default device
+  //     name/discriminator, not the MAC-derived value generated above.
+  //   - factory_data.bin / mfg_tool.py / printed QR labels that assume this
+  //     value is actually applied will NOT match what the device advertises.
+  //     Do not rely on this for production commissioning yet.
+  //
   // Identity setters must be called BEFORE Matter.begin() - after begin()
   // they're logged as a warning and have no effect.
-  Matter.setDeviceName(runtimeDeviceName.c_str());
-  Matter.setSetupDiscriminator(runtimeDiscriminator);
+  // Matter.setDeviceName(runtimeDeviceName.c_str());
+  // Matter.setSetupDiscriminator(runtimeDiscriminator);
+  // ------------------------------------------------------------------
 
   // 1. Initialize your endpoint plugins BEFORE calling the main stack begin routine
   openSesameSwitch.begin();
@@ -82,9 +101,13 @@ void setup() {
   Matter.begin();
 
   Serial.println("==================================================");
-  Serial.print("MONITOR REGISTERED IDENTITY: "); Serial.println(runtimeDeviceName);
-  Serial.print("SETUP DISCRIMINATOR: ");          Serial.println(runtimeDiscriminator);
-  Serial.println("PROTOCOLS: Matter over Wi-Fi + Matter over Thread Configured");
+  Serial.print("GENERATED IDENTITY (NOT YET APPLIED - see TODO above): "); Serial.println(runtimeDeviceName);
+  Serial.print("GENERATED DISCRIMINATOR (NOT YET APPLIED): ");             Serial.println(runtimeDiscriminator);
+  // NOTE: ESP32-C5's Arduino Matter library is currently precompiled Thread-only -
+  // Wi-Fi is not yet an available Matter transport on this chip/core. Tracked
+  // upstream at esp32-arduino-lib-builder PR #394 ("Matter and OpenThread
+  // configurations"). Update this line once Wi-Fi transport is confirmed working.
+  Serial.println("PROTOCOLS: Matter over Thread only (ESP32-C5 Wi-Fi Matter transport not yet available in Arduino core)");
   Serial.println("==================================================");
 }
 
