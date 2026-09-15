@@ -1,10 +1,31 @@
 ================================================================
  Product Requirement & Engineering Specification
  Project Name: Open Sesame
- Document Revision: 1.3
+ Document Revision: 1.4
  Target Production Volume: < 500 units/annum
  Core Functionality: Universal Matter over Wi-Fi / Thread Momentary MOSFET Controller
 ================================================================
+
+>>> STATUS FLAG (added in Rev 1.4, still open as of this revision) <<<
+  Matter-over-Wi-Fi on the ESP32-C5 is NOT YET AVAILABLE in the Arduino IDE /
+  esp32 Arduino core. The precompiled Matter library for ESP32-C5 is
+  currently Thread-only (confirmed directly against both the 3.3.11 stable
+  release and the dev/master branch). The fix is pending upstream in
+  esp32-arduino-lib-builder PR #394 ("Matter and OpenThread configurations"),
+  which is open/in review, not yet merged. Until it merges and a subsequent
+  arduino-esp32 release ships libs built from it, this device can only be
+  built and commissioned as Matter-over-Thread - see Section 1 and Section
+  3.1 below, both flagged inline. Being tracked; no ETA committed upstream
+  as of this revision.
+<<< END STATUS FLAG >>>
+
+Revision 1.4 changelog (vs. 1.3):
+  - Flagged Section 1 and Section 3.1 (below): Matter-over-Wi-Fi for
+    ESP32-C5 is still waiting on an upstream Arduino IDE / esp32 core fix
+    (esp32-arduino-lib-builder PR #394, unmerged as of this revision). Only
+    Matter-over-Thread is buildable today. No content otherwise changed from
+    Rev 1.3 - see that changelog below for the identity/discriminator/offset
+    corrections.
 
 Revision 1.3 changelog (vs. 1.2):
   - Corrected Section 3.1/3.2: the firmware identity mechanism is the Arduino Matter
@@ -36,6 +57,13 @@ The device features dual-transport capabilities (Matter-over-Wi-Fi and
 Matter-over-Thread), allowing it to work seamlessly with old-generation smart
 displays (e.g., Echo Show 8 Gen 1 & 2) and modern Thread-enabled boundary routing
 displays (e.g., Echo Show 8 Gen 3 & 4).
+
+  [FLAG - Rev 1.4, still open] The Matter-over-Wi-Fi half of this is NOT YET
+  BUILDABLE - see status flag at top of document. Until the upstream fix
+  (esp32-arduino-lib-builder PR #394) ships, this device is Thread-only, and
+  will NOT be able to commission with Wi-Fi-only Matter hubs such as the
+  named Echo Show 8 Gen 1 & 2 (no Thread border router). It will work with
+  Thread-capable hubs (Echo Show 8 Gen 3 & 4 and similar).
 
 Upon activation - via local network app interfaces or a physical integrated
 tactile button - the hardware generates a non-blocking momentary pulse to switch
@@ -98,6 +126,15 @@ immediately resetting to a safe "OFF" state across all network platforms.
 3.1 Firmware Core Framework
 
   - Development Platform: Arduino Core for ESP32 (v3.0.0 or later).
+
+    [FLAG - Rev 1.4, still open] Currently PINNED to 3.3.11 specifically
+    (not just ">= 3.0.0"). A newer dev/alpha core (4.0.0-alpha1) was tried
+    and rejected: on ESP32-C5 it broke the entire Matter data model (class
+    not found at all), an apparent transitional regression while
+    esp32-arduino-lib-builder PR #394 is mid-flight. Do not move off 3.3.11
+    until that PR merges and a release picks it up - see status flag at top
+    of document.
+
   - Dynamic Identity Generator: On first boot, the firmware derives a unique
     setup discriminator from the chip's own MAC address (last two octets,
     masked to 12 bits) and builds a device name of the form
@@ -110,11 +147,23 @@ immediately resetting to a safe "OFF" state across all network platforms.
     NodeLabel and the commissioning discriminator respectively. These setters
     must be called before Matter.begin() - the library logs a warning and
     ignores the call if invoked afterward.
+
+    [FLAG - separate from the Wi-Fi item, also still open] These two setters
+    do not exist in the pinned 3.3.11 core - they ship only on the
+    arduino-esp32 dev/master branch (unmerged MatterIdentity feature,
+    upstream PR #12857). They are currently commented out in the firmware.
+    Every unit commissions with the Matter library's shared default
+    name/discriminator until this ships in a release we adopt.
+
   - Manufacturing tooling (mfg_tool.py / flash_device.bat) computes the exact
     same MAC-derived discriminator independently, so the value printed on the
     production label and encoded in its QR code always matches what the
     device will actually advertise - the two never need to communicate the
     value to each other at flash time.
+
+    [FLAG] This is only true once the Ecosystem Identity Binding flag above
+    is resolved. Until then, do not rely on printed labels/QR codes matching
+    what a unit actually advertises.
 
 3.2 Program Execution Flow
 
@@ -247,3 +296,13 @@ against real hardware yet:
     If it doesn't, factory_data.bin is being written to unused flash space
     and none of its contents - including the passcode above - are reachable
     by the running firmware at all.
+  - [ADDED Rev 1.4, still open] Matter-over-Wi-Fi transport for ESP32-C5:
+    waiting on esp32-arduino-lib-builder PR #394 to merge upstream, then on
+    an arduino-esp32 core release to ship libs built from it. See status
+    flag at top of document. Blocks Section 1's dual-transport claim.
+  - [ADDED Rev 1.4, still open] Matter.setDeviceName() / setSetupDiscriminator()
+    (and setSetupPasscode(), which would also resolve the item above): waiting
+    on upstream PR #12857 (MatterIdentity feature) to ship in a stable
+    release. Blocks Section 3.1's Ecosystem Identity Binding and, once it
+    lands, should be revisited together with the passcode delivery item
+    above - setSetupPasscode() may be the real fix for that item too.
