@@ -1,7 +1,7 @@
 ================================================================
  Product Requirement & Engineering Specification
  Project Name: Open Sesame
- Document Revision: 1.4
+ Document Revision: 1.9
  Target Production Volume: < 500 units/annum
  Core Functionality: Universal Matter over Wi-Fi / Thread Momentary MOSFET Controller
 ================================================================
@@ -18,6 +18,141 @@
   3.1 below, both flagged inline. Being tracked; no ETA committed upstream
   as of this revision.
 <<< END STATUS FLAG >>>
+
+>>> FLASH VARIANT NOTICE (added in Rev 1.5) <<<
+  Two flash sizes are now in play for this project, and they are NOT
+  interchangeable - see Section 3.1 and 4.3 below for full detail:
+    - 16MB: the physical modules currently on hand for testing/dev
+      (confirmed via `esptool.exe --chip esp32c5 --port COM4 flash-id`).
+    - 8MB: the intended PRODUCTION target, once bench testing confirms the
+      compiled firmware actually fits comfortably in an 8MB layout with
+      room for dual-bank OTA. Not yet confirmed as of this revision - do
+      not commit to 8MB production modules until that's verified on real
+      hardware.
+  Each flash size uses its own Partition Scheme and its own factory data
+  offset. flash_device.bat now has a BOARD_FLASH_VARIANT switch to select
+  between them - see Section 4.3.
+<<< END FLASH VARIANT NOTICE >>>
+
+Revision 1.9 changelog (vs. 1.8):
+  - Recovered/reconciled history: an earlier chat (not previously cross-referenced
+    in this document) is now confirmed as the origin of Rev 1.3's fixes - it
+    started from a Gemini-generated version of this project, found and fixed the
+    same discriminator/QR/range issues Rev 1.3's changelog already describes
+    (flash_device.bat was generating a RANDOM discriminator baked into the
+    printed label/QR before that fix; index.html's "QR code" was a decorative
+    noise-pattern SVG, not an encoded payload, before that fix), and pushed the
+    result to GitHub. That push is the LAST thing that ever reached GitHub -
+    see the repo sync status note added to this project's build-notes.md.
+    Nothing from Rev 1.4 onward (this document included) has been committed.
+  - [ADDED Rev 1.9, still open] Section 6: MAC-address-read timing risk,
+    surfaced in that same earlier chat and never resolved or tracked since -
+    see new Section 6 item below.
+
+Revision 1.8 changelog (vs. 1.7):
+  - NEW: multi-brand/customer device naming. Previously, shipping switches
+    under a different company's name would have meant hardcoding a new
+    string into the .ino and maintaining a separate compiled firmware per
+    customer forever (including separate OTA update streams for each).
+    Firmware is now brand-agnostic: the customer/brand name is injected
+    per unit at FLASH TIME into the factory NVS partition, and the
+    firmware reads it back at boot. One compiled .bin now serves every
+    customer/brand - see Section 3.1 and 4.1.
+  - BUG FIX (found while implementing the above): the firmware's identity
+    Preferences call - prefs.begin("matter", false) - was opening the
+    DEFAULT "nvs" partition, not the "fctry" partition mfg_tool.py
+    actually writes factory_data.bin into (see Section 4.3's partition
+    tables). These are two entirely separate NVS partitions at different
+    flash offsets. This meant the "matter" namespace values mfg_tool.py
+    packages into factory_data.bin (device_name, discriminator, passcode)
+    were never read back by the firmware at all, in any prior revision -
+    the firmware was silently generating and using its own separate
+    self-generated identity in the default "nvs" partition instead. Fixed
+    by having the firmware open the "matter" namespace explicitly on the
+    "fctry" partition first; it falls back to the old self-generated/
+    default-partition behavior only if no factory data is present (e.g. a
+    bench unit flashed with just the firmware .bin, without running
+    flash_device.bat's mfg_tool.py step).
+  - mfg_tool.py: added --brand (default "Open Sesame"), used to build the
+    device name string ("<brand> [<discriminator>]") instead of a
+    hardcoded "Open Sesame" literal.
+  - print_label.py: added --brand (for the placeholder graphic's fallback
+    text when no logo file is found) and --logo (path to that brand's
+    logo image, default logo.png), so the printed label matches the
+    unit's actual brand even before a real logo file exists for it.
+  - flash_device.bat split into a shared engine (flash_device_core.bat -
+    all the COM-port/flash-size detection, MAC/discriminator/passcode
+    derivation, erase/write/label steps, unchanged from Rev 1.6/1.7) plus
+    thin per-brand wrapper scripts that just set BRAND_NAME, MAIN_FIRMWARE,
+    and BRAND_LOGO before calling it. flash_device.bat itself is now the
+    "Open Sesame" wrapper - running it does exactly what it always did.
+    flash_device_TEMPLATE.bat is provided as the starting point for
+    onboarding a new customer brand - see Section 4.1.
+  - Section 6: corrected the "8MB production viability" item, which the
+    Rev 1.7 changelog above already described as resolved but which this
+    section's own text had not actually been updated to reflect until now.
+  - [FLAG, not addressed by this change] All brands still share the same
+    placeholder Vendor ID / Product ID (0xFFF1 / 0x8000 - Espressif's
+    standard test values, not a real assigned CSA Vendor ID). Only the
+    device NAME is per-brand as of this revision; if different customers
+    ultimately need their own registered Vendor ID for certification
+    purposes, that's a separate, larger effort than this change covers.
+  - [FLAG, untested] The new "fctry"-partition Preferences read has not
+    been compiled or verified on real hardware. Confirm on the bench that
+    a unit flashed via flash_device.bat actually boots up reporting the
+    injected brand/discriminator (Serial output says "IDENTITY SOURCE:
+    factory") rather than silently falling back to the dev-generated
+    identity, before relying on this for a real customer order.
+  - As before, none of this yet reaches the ecosystem apps' actual
+    displayed device name - that still requires Matter.setDeviceName(),
+    still blocked on upstream PR #12857 (see Section 3.1). This change
+    makes sure the correct per-brand string is resolved and ready in
+    runtimeDeviceName the moment that setter becomes available.
+
+Revision 1.7 changelog (vs. 1.6):
+  - Section 6: resolved the "8MB production viability" open item (for now)
+    - a real compile against the "RainMaker (8MB)" Partition Scheme
+    produced a 2,115,925-byte binary against a 4,116,480-byte OTA app
+    slot (~51% used, ~1.9MB/~49% headroom). 8MB modules are viable for
+    production with the current Thread-only, no-identity-setters build.
+    Caveat: this binary predates Wi-Fi Matter transport and the
+    MatterIdentity setters (both still blocked upstream - see status
+    flags above); re-check size once those are added back in, since a
+    Wi-Fi+Thread dual-stack build is typically larger than Thread-only.
+
+Revision 1.6 changelog (vs. 1.5):
+  - flash_device.bat: removed the hardcoded COM_PORT=COM4 assumption.
+    The script now enumerates every COM port on the machine and probes
+    each with esptool (--chip auto) to find the one with a responding
+    ESP32-C5, reusing that same probe's output to also get the flash
+    size (see Rev 1.5). If no port responds as an ESP32-C5, or if more
+    than one does, the script stops and tells the operator rather than
+    guessing - see Section 4.1.
+
+Revision 1.5 changelog (vs. 1.4):
+  - Replaced the single (incorrect, out-of-range) factory_data.bin offset
+    0xB00000 with correct, verified offsets for both flash variants in play:
+      - 8MB: 0x7EA000 (using the built-in "RainMaker (8MB)" Partition Scheme
+        - see Section 3.1/4.3). 0xB00000 was never valid for an 8MB chip in
+        the first place - that address is past 11MB, outside an 8MB part
+        entirely.
+      - 16MB: 0xA10000 (using a Custom Partition Scheme via a project
+        partitions.csv - see Section 3.1/4.3).
+  - Section 3.1: documented the actual Partition Scheme selection for both
+    flash variants, replacing the vague "sketch too big" state left over
+    from the default scheme after switching board packages.
+  - Section 4.3: replaced the single factory offset with the two full
+    partition tables (8MB and 16MB), so the offset is traceable to an
+    actual verified layout instead of an assumed constant.
+  - flash_device.bat: added a BOARD_FLASH_VARIANT switch (8MB / 16MB) that
+    selects the correct FACTORY_OFFSET automatically, since flashing an
+    8MB-built binary with the 16MB offset (or vice versa) silently writes
+    factory_data.bin to the wrong physical location.
+  - Section 6: updated the factory partition offset open item to reflect
+    that it's now resolved for both known variants, with a new open item
+    about operator error risk (picking the wrong BOARD_FLASH_VARIANT for
+    the physical module in hand) and about 8MB production viability still
+    being unconfirmed.
 
 Revision 1.4 changelog (vs. 1.3):
   - Flagged Section 1 and Section 3.1 (below): Matter-over-Wi-Fi for
@@ -84,20 +219,27 @@ immediately resetting to a safe "OFF" state across all network platforms.
       - 802.15.4 Radio (OpenThread / Zigbee stack compatible)
   - Memory Allocations: Minimum 8MB SPI Flash with active Flash Encryption
     configurations enabled.
+
+    [FLAG - Rev 1.5, still open] Current test/dev units are 16MB (confirmed
+    via esptool flash-id). Production is intended to use 8MB modules once
+    that's confirmed sufficient for the compiled firmware with OTA headroom
+    - see Section 3.1/4.3 for both variants' partition layouts. Not yet
+    confirmed as of this revision.
+
   - RF Configuration: Software Coexistence must be actively configured within the
     firmware profile to prevent overlapping Wi-Fi 6 transmissions from blinding
     the 802.15.4 Thread radio receptor elements.
 
 2.2 Electrical Hardware Architecture & Pin Mapping
 
-    +-------------------+
-    |  ESP32-C5-MINI-1  |
-    |                   |
-    [3.3V Tactile Button] ----->| GPIO 5      GPIO 4 |-----> [150 Ohm] -----> Gate (MOSFET)
-    |                   |    |            |
-    [0.1 uF]            |  GPIO 2      |-----> [LED Indicator]  [10k Ohm]
-    |    +-------------------+                        |
-   GND                                                GND
+                              +-------------------+
+                              |  ESP32-C5-MINI-1  |
+                              |                   |
+    [3.3V Tactile Button] --->| GPIO 5     GPIO 4 |--> [150 Ohm] -----> Gate (MOSFET)
+                        |     |                   |                         |
+                    [0.1 uF]  |            GPIO 2 |--> [LED Indicator]  [10k Ohm]
+                        |     +-------------------+           |             |
+                       GND                                   GND           GND
 
   - GPIO 4 (Signal Output): Dedicated logic-level driver line directly linked to
     the gate of an external N-Channel MOSFET.
@@ -135,41 +277,93 @@ immediately resetting to a safe "OFF" state across all network platforms.
     until that PR merges and a release picks it up - see status flag at top
     of document.
 
-  - Dynamic Identity Generator: On first boot, the firmware derives a unique
-    setup discriminator from the chip's own MAC address (last two octets,
-    masked to 12 bits) and builds a device name of the form
-    "Open Sesame [Discriminator]". Both values are persisted via the
-    Preferences library (NVS, "matter" namespace) so they stay stable across
-    reboots, and are regenerated only if that NVS data is missing.
-  - Ecosystem Identity Binding: The generated name and discriminator are handed
-    to the Matter stack via Matter.setDeviceName() and
-    Matter.setSetupDiscriminator(), which write the Basic Information cluster's
-    NodeLabel and the commissioning discriminator respectively. These setters
-    must be called before Matter.begin() - the library logs a warning and
-    ignores the call if invoked afterward.
+    [ADDED Rev 1.5] Partition Scheme, by flash variant (both required to
+    fix the "sketch too big" error hit on the default scheme after a board
+    package switch):
+      - 16MB (current test units): Tools > Flash Size > "16MB"; Tools >
+        Partition Scheme > "Custom", with a project-local partitions.csv
+        defining two 5MB OTA app slots plus a "fctry" factory NVS partition
+        at 0xA10000 (size 0x6000). See Section 4.3 for the full table.
+      - 8MB (intended production target): Tools > Flash Size > "8MB";
+        Tools > Partition Scheme > "RainMaker (8MB)" - a built-in scheme
+        (no custom partitions.csv needed). This is a partition-table
+        selection only; it does not pull in Espressif's RainMaker library
+        or cloud service. Gives two ~3.9MB OTA app slots plus a "fctry"
+        factory NVS partition at 0x7EA000 (size 0x6000). See Section 4.3.
 
-    [FLAG - separate from the Wi-Fi item, also still open] These two setters
+  - Device Identity Resolution: [UPDATED Rev 1.8] At boot, the firmware
+    resolves its device name/discriminator/passcode from one of two
+    sources, in this order:
+      1. FACTORY-PROVISIONED identity: read from the "matter" namespace on
+         the dedicated "fctry" NVS partition (the same partition
+         mfg_tool.py packages factory_data.bin into - see Section 4.3).
+         This is where the per-unit, per-BRAND identity lives, injected at
+         flash time by flash_device.bat/mfg_tool.py. This is what makes
+         one compiled firmware image usable across multiple customer
+         brands - only the small factory_data.bin blob differs per unit,
+         not the firmware itself.
+      2. SELF-GENERATED fallback: if no factory data is present (e.g. a
+         bench unit flashed with just the firmware .bin, skipping the
+         manufacturing step), the firmware derives a discriminator from
+         the chip's own MAC address (last two octets, masked to 12 bits)
+         and builds a "Open Sesame (Dev Fallback) [Discriminator]" name,
+         persisting both in the DEFAULT NVS partition so they stay stable
+         across reboots for that bench unit.
+
+    [FLAG - Rev 1.8, fixed a latent bug] Prior to this revision, the
+    firmware opened the "matter" namespace on the DEFAULT "nvs" partition
+    only - never the "fctry" partition mfg_tool.py actually writes into.
+    Those are two separate NVS partitions at different flash offsets, so
+    the factory-injected identity was never actually read by the firmware
+    in any earlier revision; every unit was silently using the
+    self-generated fallback identity instead, regardless of what
+    factory_data.bin contained. This is now fixed - see Rev 1.8 changelog
+    above. [FLAG, untested] Not yet verified against real hardware.
+
+  - Ecosystem Identity Binding: Whichever identity is resolved above is
+    handed to the Matter stack via Matter.setDeviceName(),
+    Matter.setSetupDiscriminator(), and Matter.setSetupPasscode(), which
+    write the Basic Information cluster's NodeLabel, the commissioning
+    discriminator, and the commissioning passcode respectively. These
+    setters must be called before Matter.begin() - the library logs a
+    warning and ignores the call if invoked afterward.
+
+    [FLAG - separate from the Wi-Fi item, also still open] These setters
     do not exist in the pinned 3.3.11 core - they ship only on the
     arduino-esp32 dev/master branch (unmerged MatterIdentity feature,
     upstream PR #12857). They are currently commented out in the firmware.
     Every unit commissions with the Matter library's shared default
-    name/discriminator until this ships in a release we adopt.
+    name/discriminator/passcode until this ships in a release we adopt.
+    Rev 1.8's identity resolution work is plumbing for when that day
+    comes - it does not itself change what any ecosystem app displays yet.
 
   - Manufacturing tooling (mfg_tool.py / flash_device.bat) computes the exact
     same MAC-derived discriminator independently, so the value printed on the
     production label and encoded in its QR code always matches what the
-    device will actually advertise - the two never need to communicate the
-    value to each other at flash time.
+    device will actually advertise once Ecosystem Identity Binding above is
+    resolved - the two never need to communicate the value to each other at
+    flash time.
 
     [FLAG] This is only true once the Ecosystem Identity Binding flag above
     is resolved. Until then, do not rely on printed labels/QR codes matching
     what a unit actually advertises.
 
+  - Per-Brand Customization: [ADDED Rev 1.8] The device name's brand portion
+    (e.g. "Open Sesame" vs. a different customer's name) is set via
+    mfg_tool.py's --brand argument at flash time, not compiled into the
+    firmware. See Section 4.1 for how flash_device.bat is organized to
+    support this per customer.
+
+    [FLAG] Vendor ID / Product ID (0xFFF1 / 0x8000) are NOT part of this
+    customization - every brand currently shares Espressif's standard test
+    VID/PID. A real per-brand Vendor ID (for CSA certification purposes)
+    would be a separate, larger effort.
+
 3.2 Program Execution Flow
 
   - Boot Logic: Pins are instantly driven to a safe LOW state. The firmware
-    checks its own NVS store for a previously generated identity; if absent,
-    it derives one from the MAC address and saves it before continuing.
+    resolves its identity as described in Section 3.1 (factory-provisioned
+    first, self-generated MAC-derived fallback second) before continuing.
   - Asynchronous Listening Loop: The main loop monitors physical button state
     (debounced, edge-triggered - a single press produces exactly one pulse,
     even if the button is held down) alongside inbound network transactions
@@ -202,6 +396,39 @@ programmed into individual units using a localized Windows batch installer
 wrapper pipeline script (flash_device.bat) interacting with custom Python
 terminal scripts (mfg_tool.py, print_label.py).
 
+  [UPDATED Rev 1.6] flash_device.bat no longer targets a hardcoded COM
+  port. It scans all COM ports on the machine, probes each with esptool
+  (--chip auto) to find the one with a responding ESP32-C5, and stops
+  with an error rather than guessing if zero or more than one port
+  responds as an ESP32-C5 (see Section 6). From that same probe it also
+  reads the physical flash size and picks the matching FACTORY_OFFSET
+  automatically (Rev 1.5) - no operator-set switch remains. The
+  operator's only remaining responsibility is making sure MAIN_FIRMWARE
+  was compiled with the Partition Scheme that matches the module's
+  actual flash size (Section 3.1) - that still can't be verified from
+  outside the compiled binary.
+
+  [UPDATED Rev 1.8] This logic (COM port scan, flash-size detection,
+  MAC/discriminator/passcode derivation, erase/write/label steps) now
+  lives in a shared flash_device_core.bat, unchanged from Rev 1.6/1.7.
+  Brand-specific ".bat" wrapper files set three variables and then call
+  it:
+    - BRAND_NAME    - customer/brand string passed to mfg_tool.py and
+                      print_label.py (e.g. "Open Sesame").
+    - MAIN_FIRMWARE - the compiled .bin to flash for this brand. Today
+                      every brand uses the SAME compiled firmware (see
+                      Section 3.1's Device Identity Resolution) - this
+                      only needs to point at a different .bin if a brand
+                      ever needs firmware-level differences beyond the
+                      name, which is not the case today.
+    - BRAND_LOGO    - path to that brand's logo image for the printed
+                      label (Section 4.5); defaults to logo.png if unset.
+  flash_device.bat itself is now just the "Open Sesame" wrapper - running
+  it does exactly what it always did. To onboard a new customer, copy
+  flash_device_TEMPLATE.bat, fill in its three variables, and save it
+  under a new name (e.g. flash_device_AcmeGarage.bat) - no firmware
+  rebuild required.
+
 4.2 Silicon Feature Extraction & Auditing
 
 Before compilation and flashing steps execute, the host pipeline uses
@@ -213,9 +440,34 @@ and for the passcode/QA-log steps below.
 4.3 Factory Storage Allocation & Formatting
 
 Security credentials and metadata keys are packaged into an NVS-formatted
-binary payload (factory_data.bin), which flash_device.bat writes to flash
-offset 0xB00000. This offset must match the target board's actual partition
-table - see Section 6, Known Open Items.
+binary payload (factory_data.bin), written by flash_device.bat to the
+dedicated "fctry" partition for whichever flash variant is being built -
+see Section 3.1 for how each variant's Partition Scheme is selected in
+Arduino IDE.
+
+  [CORRECTED Rev 1.5] The prior single offset (0xB00000) is removed - it
+  was never valid for an 8MB chip (past 11MB, outside an 8MB part entirely)
+  and was never verified against a real partition table for either variant.
+  The two verified tables now in use:
+
+  8MB (production target - built-in "RainMaker (8MB)" Partition Scheme):
+    Name       Type  SubType   Offset      Size
+    nvs        data  nvs       0x9000      0x5000
+    otadata    data  ota       0xe000      0x2000
+    ota_0      app   ota_0     0x10000     0x3EA000  (~3.9MB)
+    ota_1      app   ota_1     0x400000    0x3EA000  (~3.9MB)
+    fctry      data  nvs       0x7EA000    0x6000    <- factory_data.bin target
+    coredump   data  coredump  0x7F0000    0x10000
+
+  16MB (current test/dev units - Custom Partition Scheme, project
+  partitions.csv):
+    Name       Type  SubType   Offset      Size
+    nvs        data  nvs       0x9000      0x5000
+    otadata    data  ota       0xe000      0x2000
+    app0       app   ota_0     0x10000     0x500000  (5MB)
+    app1       app   ota_1     0x510000    0x500000  (5MB)
+    fctry      data  nvs       0xA10000    0x6000    <- factory_data.bin target
+    coredump   data  coredump  0xFF0000    0x10000
 
   - SetupDiscriminator: 12-bit identifier (0-4095), deterministically derived
     from the unit's MAC address (see Section 3.1) - not randomly assigned.
@@ -223,10 +475,15 @@ table - see Section 6, Known Open Items.
     avoiding standard generic repetition patterns (10000000 to 99999999).
     Unlike the discriminator, this has no MAC-derivable equivalent, so it
     remains randomly generated per unit at flash time.
-  - DeviceName String: Formatted inside the generator pipeline script as
-    "Open Sesame [Discriminator]" and packed as a string data type inside the
-    matter namespace row structure - identical to what the firmware generates
-    for itself on first boot.
+  - DeviceName String: [UPDATED Rev 1.8] Formatted inside the generator
+    pipeline script as "<Brand> [Discriminator]", where <Brand> comes from
+    mfg_tool.py's --brand argument (default "Open Sesame" - see Section
+    3.1's Per-Brand Customization and Section 4.1), and packed as a string
+    data type inside the matter namespace row structure written to the
+    "fctry" partition. As of Rev 1.8 the firmware actually reads this same
+    partition/namespace back at boot (see Section 3.1's Device Identity
+    Resolution) - in earlier revisions it did not (see Rev 1.8 changelog
+    bug-fix note).
 
 4.4 Quality Assurance Serialization Logging
 
@@ -238,10 +495,16 @@ the following tracking profile values:
      pulled at the moment of logging.
   2. MAC Address: Hardware unique 6-byte hexadecimal unique identification
      string.
-  3. Device Name: The customized, discriminator-appended identity string.
+  3. Device Name: The customized, discriminator-appended identity string
+     (now brand-specific as of Rev 1.8 - see Section 4.3).
   4. Discriminator: The MAC-derived 12-bit credential value.
   5. Passcode: Assigned 8-digit commissioning passcode security payload.
   6. Status: Process confirmation flag (SUCCESS).
+
+  [SUGGESTED Rev 1.5, not yet implemented] Consider adding a Flash Variant
+  column (8MB / 16MB) to this log now that two variants exist, so a unit's
+  QA record shows which partition table/offset it was built and flashed
+  against.
 
 4.5 Automated Print Label Protocol
 
@@ -249,8 +512,15 @@ Upon successful completion of the hardware flash step, the script triggers an
 automated printing asset generation cycle to compile a 4" x 2" thermal label.
 The layout is split into a precise 4-quadrant payload arrangement:
 
+  [UPDATED Rev 1.8] print_label.py now accepts --brand and --logo, passed
+  through by flash_device_core.bat from the calling brand wrapper's
+  BRAND_NAME/BRAND_LOGO (Section 4.1). --logo points at that brand's own
+  logo image file (falls back to logo.png if unset); if that file doesn't
+  exist yet, the placeholder graphic below uses --brand's text instead of
+  a hardcoded "OPEN SESAME" label.
+
   - Quadrant 1 (Top Left): High-contrast graphic manufacturing logo file
-    (logo.png).
+    (brand-specific, via --logo - see above).
   - Quadrant 2 (Center Left): Main scannable Matter onboarding pairing QR
     code matching flashed parameters (1.1" wide).
   - Quadrant 3 (Bottom Left): Human-readable, centered text string showing the
@@ -282,27 +552,62 @@ camera optics fail.
 These are gaps identified during the 1.3 review that haven't been verified
 against real hardware yet:
 
-  - Passcode delivery path (highest priority): the firmware has no runtime
-    setter call for the setup passcode (unlike DeviceName and
-    SetupDiscriminator, which are set explicitly via Matter.setDeviceName()
-    and Matter.setSetupDiscriminator() before Matter.begin()). Whether
-    Matter.begin() actually reads the passcode out of factory_data.bin at
-    0xB00000 - or falls back to the Arduino library's default test passcode
-    (20202021) - has not been confirmed. Test commissioning a unit using the
-    passcode printed on its own label before relying on this in production.
-  - Factory partition offset (0xB00000): confirm this matches the "nvs" (or
-    equivalent) partition address in the actual partition table/scheme
-    selected for this board in the Arduino IDE (Tools > Partition Scheme).
-    If it doesn't, factory_data.bin is being written to unused flash space
-    and none of its contents - including the passcode above - are reachable
-    by the running firmware at all.
+  - Passcode delivery path (highest priority): [UPDATED Rev 1.8] the
+    firmware now reads the passcode out of factory_data.bin (via the same
+    "fctry"-partition fix described above) into a runtimePasscode
+    variable, but still has no runtime setter call to hand it to the
+    Matter stack (unlike DeviceName and SetupDiscriminator - see Section
+    3.1's Ecosystem Identity Binding). Matter.begin() itself does not
+    consult factory_data.bin on its own - it will use the Arduino
+    library's default test passcode (20202021) until
+    Matter.setSetupPasscode() ships (upstream PR #12857) and is wired up.
+    Test commissioning a unit using the passcode printed on its own label
+    before relying on this in production.
+  - [RESOLVED Rev 1.5] Factory partition offset (was 0xB00000): replaced
+    with verified, in-range offsets for both flash variants - see Section
+    4.3. The remaining risk is operator error (see below), not an invalid
+    address.
+  - [RESOLVED Rev 1.6] BOARD_FLASH_VARIANT operator error risk: removed
+    the manual switch entirely - flash_device.bat now auto-detects both
+    the COM port and the flash size from a live probe of the connected
+    module (see Section 4.1). The remaining risk is narrower: the script
+    still cannot verify that MAIN_FIRMWARE was compiled with the
+    Partition Scheme matching that module's actual flash size - only that
+    the flash size itself was read correctly off the chip. Get the
+    Arduino IDE Partition Scheme selection wrong (Section 3.1) and the
+    script will still confidently write to the "correct" offset for the
+    wrong binary.
+  - [ADDED Rev 1.6, still open] Multiple-ESP32-C5-on-one-machine handling:
+    if more than one COM port responds as an ESP32-C5 (e.g., a second
+    jig or a leftover dev board plugged in), flash_device.bat stops and
+    lists every matching port rather than picking one. This is
+    deliberately conservative for a single-unit-at-a-time flashing flow;
+    revisit if the line ever needs to flash multiple units concurrently
+    from one machine.
+  - [RESOLVED Rev 1.7, for the current build] 8MB production viability:
+    confirmed via a real compile - 2,115,925 bytes against a 4,116,480-byte
+    "RainMaker (8MB)" OTA app slot (~49% headroom). Still worth re-checking
+    once Wi-Fi Matter transport and the MatterIdentity setters are added
+    back in (see above) - this number is for the current Thread-only,
+    no-identity-setters build only. An 8MB unit still hasn't been flashed
+    and commissioned end-to-end yet - only compiled.
   - [ADDED Rev 1.4, still open] Matter-over-Wi-Fi transport for ESP32-C5:
     waiting on esp32-arduino-lib-builder PR #394 to merge upstream, then on
     an arduino-esp32 core release to ship libs built from it. See status
     flag at top of document. Blocks Section 1's dual-transport claim.
   - [ADDED Rev 1.4, still open] Matter.setDeviceName() / setSetupDiscriminator()
-    (and setSetupPasscode(), which would also resolve the item above): waiting
-    on upstream PR #12857 (MatterIdentity feature) to ship in a stable
-    release. Blocks Section 3.1's Ecosystem Identity Binding and, once it
-    lands, should be revisited together with the passcode delivery item
-    above - setSetupPasscode() may be the real fix for that item too.
+    (and setSetupPasscode(), which would also resolve the passcode delivery
+    item above): waiting on upstream PR #12857 (MatterIdentity feature) to
+    ship in a stable release. Blocks Section 3.1's Ecosystem Identity
+    Binding and, once it lands, should be revisited together with the
+    passcode delivery item above - setSetupPasscode() may be the real fix
+    for that item too.
+  - [ADDED Rev 1.8, still open] "fctry"-partition identity read: not yet
+    verified on real hardware. Confirm a unit flashed via flash_device.bat
+    actually boots reporting "IDENTITY SOURCE: factory" (Serial output)
+    with the correct brand/discriminator, rather than silently falling
+    back to the dev-generated identity - see Section 3.1.
+  - [ADDED Rev 1.8, still open] Per-brand Vendor ID / Product ID: not
+    addressed by the Rev 1.8 brand-naming work. All brands currently share
+    Espressif's standard test VID/PID (0xFFF1 / 0x8000). Revisit if a
+    customer ever needs their own registered CSA Vendor ID.
