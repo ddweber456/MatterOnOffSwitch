@@ -16,10 +16,15 @@ def generate_matter_qr_payload(discriminator, passcode, vid=0xFFF1, pid=0x8000):
     - Product ID (PID): 16 bits
     - Commissioning Flow: 2 bits (value 0 for Standard onboarding)
     - Discovery Capabilities: 8 bits (value 4 for BLE transport beacon discovery)
-    - Discriminator: 12 bits 
+    - Discriminator: 12 bits
     - Passcode: 27 bits
     - Padding/Reserved: 4 bits (value 0)
     Total payload bits required = 88 bits (11 raw bytes)
+
+    NOTE (Rev 1.8): vid/pid are still the shared Espressif test values for every brand -
+    per-brand Vendor ID customization is a separate, larger effort (see Product Requirement.txt
+    Section 3.1 "Per-Brand Customization" flag) and is NOT handled by --brand below, which only
+    affects the printed label's placeholder text.
     """
     # 1. Arrange the parameters to a continuous integer based on standard sequential bit alignments
     bit_payload = 0
@@ -31,7 +36,7 @@ def generate_matter_qr_payload(discriminator, passcode, vid=0xFFF1, pid=0x8000):
     bit_payload |= (discriminator & 0xFFF) << 45 # Bits 45-56: 12-bit Discriminator
     bit_payload |= (passcode & 0x7FFFFFF) << 57  # Bits 57-83: 27-bit Passcode
     # Bits 84-87 are trailing 0 padding up to full data array byte structures
-    
+
     # 2. Convert the accumulated bit sequence string into explicit 11 raw data bytes
     raw_bytes = []
     temp_payload = bit_payload
@@ -39,10 +44,10 @@ def generate_matter_qr_payload(discriminator, passcode, vid=0xFFF1, pid=0x8000):
         raw_bytes.append(temp_payload & 0xFF)
         temp_payload >>= 8
 
-    # 3. Base38 Character Map definitions 
+    # 3. Base38 Character Map definitions
     BASE38_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-."
     base38_encoded_string = ""
-    
+
     # Group every 3 distinct raw data bytes into precise 5-character alphanumeric Base38 blocks
     # Length of 11 bytes splits cleanly into: three 3-byte blocks + one trailing 2-byte block
     byte_index = 0
@@ -50,7 +55,7 @@ def generate_matter_qr_payload(discriminator, passcode, vid=0xFFF1, pid=0x8000):
         remaining_bytes = len(raw_bytes) - byte_index
         chunk_value = 0
         char_count = 0
-        
+
         if remaining_bytes >= 3:
             # 3-byte chunk expands into an integer, converted into 5 Base38 symbol structures
             chunk_value = raw_bytes[byte_index] | (raw_bytes[byte_index+1] << 8) | (raw_bytes[byte_index+2] << 16)
@@ -61,12 +66,12 @@ def generate_matter_qr_payload(discriminator, passcode, vid=0xFFF1, pid=0x8000):
             chunk_value = raw_bytes[byte_index] | (raw_bytes[byte_index+1] << 8)
             char_count = 4
             byte_index += 2
-            
+
         # Extract the Base38 positional index keys
         for _ in range(char_count):
             base38_encoded_string += BASE38_CHARS[chunk_value % 38]
             chunk_value //= 38
-            
+
     return f"MT:{base38_encoded_string}"
 
 def main():
@@ -74,7 +79,19 @@ def main():
     parser.add_argument("--discriminator", type=int, required=True)
     parser.add_argument("--passcode", type=int, required=True)
     parser.add_argument("--mac", type=str, required=True)
+    # [ADDED Rev 1.8] Brand/logo customization - see Product Requirement.txt Section 4.1/4.5.
+    # flash_device_core.bat passes these through from the calling brand wrapper's
+    # BRAND_NAME/BRAND_LOGO variables, so the printed label matches the unit's actual brand
+    # even before a real logo image file exists for that brand.
+    parser.add_argument("--brand", type=str, default="Open Sesame",
+                         help="Customer/brand name shown on the placeholder graphic when no "
+                              "--logo image file is found. Pass the same --brand value used "
+                              "with mfg_tool.py for this unit.")
+    parser.add_argument("--logo", type=str, default="logo.png",
+                         help="Path to this brand's logo image file. Different brands can point "
+                              "this at their own logo (e.g. --logo AcmeGarage_logo.png).")
     args = parser.parse_args()
+    brand = args.brand.strip() if args.brand and args.brand.strip() else "Open Sesame"
 
     # 1. Compute the exact pairing payload string matching target NVS partitions dynamically
     qr_payload = generate_matter_qr_payload(args.discriminator, args.passcode)
@@ -87,13 +104,13 @@ def main():
     qr_path = "temp_qr.png"
     qr_img.save(qr_path)
 
-    logo_path = "logo.png"
+    logo_path = args.logo
     if not os.path.exists(logo_path):
-        print("⚠️  Warning: 'logo.png' not found. Creating a generic temporary placeholder logo text graphic.")
+        print(f"⚠️  Warning: '{logo_path}' not found. Creating a generic temporary placeholder logo text graphic for brand \"{brand}\".")
         from PIL import Image as PILImage, ImageDraw
         img = PILImage.new('RGB', (150, 75), color = (0, 0, 0))
         d = ImageDraw.Draw(img)
-        d.text((10,30), "OPEN SESAME", fill=(255,255,255))
+        d.text((10,30), brand.upper(), fill=(255,255,255))
         img.save(logo_path)
 
     # 2. Formulate the Label Canvas Blueprint Layout (Standard 4" x 2" Thermal Layout)

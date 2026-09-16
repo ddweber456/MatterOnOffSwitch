@@ -31,12 +31,24 @@ def main():
     # --discriminator is accepted for backward compatibility with existing call sites, but is
     # ignored in favor of the MAC-derived value so this tool can never disagree with the firmware.
     parser.add_argument("--discriminator", type=int, default=None, help="Deprecated - discriminator is now derived from --mac")
+    # [ADDED Rev 1.8] Customer/brand name, injected into factory_data.bin at flash time instead
+    # of being hardcoded into the firmware. See Product Requirement.txt Section 3.1/4.1 - this is
+    # what lets one compiled firmware image serve multiple customer brands. flash_device_core.bat
+    # passes this through from the calling brand wrapper's BRAND_NAME variable.
+    parser.add_argument("--brand", type=str, default="Open Sesame",
+                         help="Customer/brand name baked into this unit's factory-provisioned "
+                              "device name (combined with the MAC-derived discriminator). "
+                              "Does not require recompiling firmware.")
     args = parser.parse_args()
 
     discriminator = discriminator_from_mac(args.mac)
     if args.discriminator is not None and args.discriminator != discriminator:
         print(f"[Python] NOTE: --discriminator {args.discriminator} was supplied but ignored; "
               f"using MAC-derived value {discriminator} to stay in sync with the firmware.")
+
+    brand = args.brand.strip() if args.brand and args.brand.strip() else "Open Sesame"
+    if brand != args.brand:
+        print(f"[Python] NOTE: --brand was blank/whitespace; falling back to \"{brand}\".")
 
     # Data Validation Constraints Check
     # Matter's setup discriminator is a plain 12-bit value (0-4095) - there is no protocol
@@ -52,16 +64,18 @@ def main():
 
     csv_filename = "temp_factory_layout.csv"
     log_filename = "production_log.csv"
-    custom_device_name = f"Open Sesame [{discriminator}]"
+    custom_device_name = f"{brand} [{discriminator}]"
 
     # 2. Construct the Key-Value CSV structural map demanded by the Espressif NVS compiler
     #
-    # NOTE: the firmware independently regenerates this same discriminator and device name
-    # from the chip's own MAC address on first boot, and persists them in its own NVS
-    # ("matter" namespace via the Preferences library). Writing them here as well is a
-    # belt-and-suspenders backup, not the primary source of truth. The PASSCODE below is
-    # the one value the firmware has no way to regenerate on its own - getting it onto
-    # the device via this factory blob (or some other route) is what actually needs to be
+    # NOTE: this "matter" namespace is compiled into factory_data.bin, which flash_device.bat
+    # writes to the dedicated "fctry" NVS partition (see Product Requirement.txt Section 4.3).
+    # As of firmware Rev 1.8, MatterOnOffSwitch.ino reads this exact partition/namespace back
+    # at boot as its FIRST-CHOICE identity source - this is now the primary source of truth for
+    # device_name/discriminator/passcode, not a backup (earlier revisions had a bug where the
+    # firmware never actually read this partition - see Rev 1.8 changelog). PASSCODE is still the
+    # one value the firmware doesn't yet hand to the Matter stack (Matter.setSetupPasscode() is
+    # blocked upstream - see Section 3.1) - getting it applied is what actually needs to be
     # verified end-to-end on real hardware.
     csv_content = f"""key,type,encoding,value
 matter,namespace,,
@@ -76,7 +90,7 @@ device_name,data,string,{custom_device_name}
             f.write(csv_content)
 
         print(f"[Python] Structuring payload profile for values: Disc=0x{discriminator:03X} ({discriminator}), PIN={args.passcode}")
-        print(f"[Python] Appended Custom NV Device Identity: \"{custom_device_name}\"")
+        print(f"[Python] Appended Custom NV Device Identity: \"{custom_device_name}\" (brand: \"{brand}\")")
 
         # 3. Locate Espressif NVS Generator tool inside local machine architecture
         user_profile = os.environ.get("USERPROFILE", "C:\\Users\\Admin")
@@ -105,9 +119,9 @@ device_name,data,string,{custom_device_name}
         with open(log_filename, mode="a", newline="", encoding="utf-8") as qa_file:
             writer = csv.writer(qa_file)
             if not file_exists:
-                writer.writerow(["Timestamp", "MAC Address", "Device Name", "Discriminator", "Passcode", "Status"])
+                writer.writerow(["Timestamp", "MAC Address", "Brand", "Device Name", "Discriminator", "Passcode", "Status"])
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            writer.writerow([current_time, args.mac.upper(), custom_device_name, discriminator, args.passcode, "SUCCESS"])
+            writer.writerow([current_time, args.mac.upper(), brand, custom_device_name, discriminator, args.passcode, "SUCCESS"])
 
     except Exception as e:
         print(f"❌ LOG MECHANISM SYSTEM ERROR: {e}")

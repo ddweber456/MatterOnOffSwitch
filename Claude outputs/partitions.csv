@@ -1,0 +1,15 @@
+# Name,     Type, SubType,  Offset,   Size,     Flags
+# Custom OTA partition table for 16MB ESP32-C5 test/dev units.
+# Two 5MB OTA app slots (generous headroom over the typical
+# ~1.5-2.5MB size of a Matter+BLE+Thread binary), a dedicated
+# "fctry" factory NVS partition for factory_data.bin (see
+# flash_device.bat / mfg_tool.py and Product Requirement.txt
+# Section 4.3), and a coredump partition for crash diagnostics.
+# Select via Arduino IDE: Tools > Partition Scheme > "Custom",
+# Tools > Flash Size > "16MB". Place this file next to the .ino.
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xe000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x500000,
+app1,       app,  ota_1,    0x510000, 0x500000,
+fctry,      data, nvs,      0xA10000, 0x6000,
+coredump,   data, coredump, 0xFF0000, 0x10000,

@@ -43,54 +43,105 @@ void setup() {
   pinMode(PHYSICAL_BUTTON_PIN, INPUT_PULLUP);
 
   // ==========================================
-  // 🏷️ FIRST-BOOT IDENTITY GENERATION
-  // Generates a MAC-derived discriminator + device name exactly once,
-  // then persists it in NVS so it stays stable across reboots. NOTE: as of
-  // esp32 Arduino core 3.3.11 (currently pinned - see build notes), this
-  // generated identity is computed and persisted but NOT yet handed to the
-  // Matter stack - see the TODO block below. Every unit currently
-  // commissions with the Matter library's shared default name/discriminator,
-  // NOT the value generated/printed here or by mfg_tool.py. Do not rely on
-  // printed labels/QR codes matching this generated value until that TODO
-  // is resolved.
+  // 🏷️ DEVICE IDENTITY RESOLUTION  [UPDATED Rev 1.8]
+  // Two possible sources, tried in this order:
+  //   1. FACTORY-PROVISIONED identity, written into the "fctry" NVS
+  //      partition by mfg_tool.py / flash_device.bat during manufacturing
+  //      (see Product Requirement.txt Section 4.3). This is what carries
+  //      the customer/brand name (mfg_tool.py's --brand) and the per-unit
+  //      discriminator + passcode. Reading from here is what lets ONE
+  //      compiled firmware image serve multiple customers/brands - only
+  //      the small factory_data.bin blob differs per unit, not the
+  //      firmware itself. See Section 3.1/4.1 for the full explanation.
+  //   2. SELF-GENERATED fallback, computed from the chip's own MAC address
+  //      and persisted in the DEFAULT NVS partition. This only kicks in
+  //      when no factory data is present - e.g. a bench unit flashed with
+  //      just the main firmware .bin, no factory_data.bin, for quick dev
+  //      testing without running the full manufacturing flow.
+  //
+  // BUG FIX (Rev 1.8): earlier revisions opened the "matter" namespace on
+  // the DEFAULT "nvs" partition only - never the "fctry" partition
+  // mfg_tool.py actually writes into. Those are two separate NVS
+  // partitions at different flash offsets, so factory-injected identity
+  // was never actually read back here in any prior revision; every unit
+  // was silently using the self-generated fallback instead, regardless of
+  // what factory_data.bin contained. UNTESTED on real hardware as of this
+  // revision - confirm the Serial output below says "factory", not
+  // "dev fallback", on a unit flashed via flash_device.bat.
+  //
+  // NOTE: as of esp32 Arduino core 3.3.11 (currently pinned - see build
+  // notes), whichever identity is resolved below is computed and
+  // persisted but NOT yet handed to the Matter stack - see the TODO block
+  // after this one. Every unit currently commissions with the Matter
+  // library's shared default name/discriminator/passcode, NOT the values
+  // resolved here. Do not rely on printed labels/QR codes matching these
+  // values until that TODO is resolved.
   // ==========================================
   String runtimeDeviceName = "Open Sesame (Dev Fallback)";
-  uint16_t runtimeDiscriminator = 0xF00; // library's own test-default, used only if generation fails
+  uint16_t runtimeDiscriminator = 0xF00;   // library's own test-default, used only if resolution fails
+  uint32_t runtimePasscode = 20202021;     // library's own test-default, used only if resolution fails
+  bool haveFactoryIdentity = false;
 
-  prefs.begin("matter", false); // read-write, so we can persist on first boot
-  if (prefs.isKey("device_name") && prefs.isKey("discriminator")) {
-    runtimeDeviceName = prefs.getString("device_name");
-    runtimeDiscriminator = prefs.getUShort("discriminator");
-  } else {
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    runtimeDiscriminator = ((mac[4] << 8) | mac[5]) & 0x0FFF; // 12-bit range per Matter spec
-    runtimeDeviceName = "Open Sesame [" + String(runtimeDiscriminator) + "]";
-    prefs.putString("device_name", runtimeDeviceName);
-    prefs.putUShort("discriminator", runtimeDiscriminator);
-    Serial.println("[Identity] First boot detected - generated and saved new device identity");
+  Preferences factoryPrefs;
+  // partition_label = "fctry" -> the factory-data NVS partition mfg_tool.py
+  // writes into, NOT the default "nvs" partition used below. Opened
+  // read-only: factory data is written once, at flash time, never by the
+  // firmware itself.
+  if (factoryPrefs.begin("matter", true, "fctry")) {
+    if (factoryPrefs.isKey("device_name") && factoryPrefs.isKey("discriminator")) {
+      runtimeDeviceName    = factoryPrefs.getString("device_name");
+      runtimeDiscriminator = factoryPrefs.getUShort("discriminator");
+      if (factoryPrefs.isKey("passcode")) {
+        runtimePasscode = factoryPrefs.getUInt("passcode");
+      }
+      haveFactoryIdentity = true;
+    }
+    factoryPrefs.end();
   }
-  prefs.end();
+
+  if (!haveFactoryIdentity) {
+    // No factory data found (or it's missing the expected keys) - most
+    // likely a bench/dev unit flashed without running flash_device.bat's
+    // mfg_tool.py step. Fall back to the original MAC-derived,
+    // self-persisting identity so bench testing still works without a
+    // full manufacturing pass.
+    prefs.begin("matter", false); // read-write, so we can persist on first boot
+    if (prefs.isKey("device_name") && prefs.isKey("discriminator")) {
+      runtimeDeviceName = prefs.getString("device_name");
+      runtimeDiscriminator = prefs.getUShort("discriminator");
+    } else {
+      uint8_t mac[6];
+      WiFi.macAddress(mac);
+      runtimeDiscriminator = ((mac[4] << 8) | mac[5]) & 0x0FFF; // 12-bit range per Matter spec
+      runtimeDeviceName = "Open Sesame (Dev Fallback) [" + String(runtimeDiscriminator) + "]";
+      prefs.putString("device_name", runtimeDeviceName);
+      prefs.putUShort("discriminator", runtimeDiscriminator);
+      Serial.println("[Identity] First boot, no factory data found - generated and saved a dev-fallback identity");
+    }
+    prefs.end();
+  }
 
   // ------------------------------------------------------------------
   // TODO(upstream): Matter.setDeviceName() / Matter.setSetupDiscriminator()
-  // are NOT available in the stable esp32 Arduino core we're pinned to
-  // (3.3.11). They only exist on the arduino-esp32 dev/master branch, added
-  // by the still-unmerged MatterIdentity feature (tracks upstream PR #12857,
-  // closing issue #12293 "Change Matter Discriminator value").
+  // / Matter.setSetupPasscode() are NOT available in the stable esp32
+  // Arduino core we're pinned to (3.3.11). They only exist on the
+  // arduino-esp32 dev/master branch, added by the still-unmerged
+  // MatterIdentity feature (tracks upstream PR #12857, closing issue
+  // #12293 "Change Matter Discriminator value").
   //
-  // Re-enable the two calls below once that API ships in a release we
+  // Re-enable the calls below once that API ships in a release we
   // upgrade to. Until then:
   //   - Every unit advertises the Matter library's shared default device
-  //     name/discriminator, not the MAC-derived value generated above.
-  //   - factory_data.bin / mfg_tool.py / printed QR labels that assume this
-  //     value is actually applied will NOT match what the device advertises.
-  //     Do not rely on this for production commissioning yet.
+  //     name/discriminator/passcode, not the values resolved above.
+  //   - factory_data.bin / mfg_tool.py / printed QR labels that assume
+  //     these values are actually applied will NOT match what the device
+  //     advertises. Do not rely on this for production commissioning yet.
   //
   // Identity setters must be called BEFORE Matter.begin() - after begin()
   // they're logged as a warning and have no effect.
   // Matter.setDeviceName(runtimeDeviceName.c_str());
   // Matter.setSetupDiscriminator(runtimeDiscriminator);
+  // Matter.setSetupPasscode(runtimePasscode);
   // ------------------------------------------------------------------
 
   // 1. Initialize your endpoint plugins BEFORE calling the main stack begin routine
@@ -101,8 +152,9 @@ void setup() {
   Matter.begin();
 
   Serial.println("==================================================");
-  Serial.print("GENERATED IDENTITY (NOT YET APPLIED - see TODO above): "); Serial.println(runtimeDeviceName);
-  Serial.print("GENERATED DISCRIMINATOR (NOT YET APPLIED): ");             Serial.println(runtimeDiscriminator);
+  Serial.print("RESOLVED IDENTITY (NOT YET APPLIED - see TODO above): "); Serial.println(runtimeDeviceName);
+  Serial.print("RESOLVED DISCRIMINATOR (NOT YET APPLIED): ");             Serial.println(runtimeDiscriminator);
+  Serial.print("IDENTITY SOURCE: ");                                     Serial.println(haveFactoryIdentity ? "factory (\"fctry\" NVS partition)" : "dev fallback (self-generated)");
   // NOTE: ESP32-C5's Arduino Matter library is currently precompiled Thread-only -
   // Wi-Fi is not yet an available Matter transport on this chip/core. Tracked
   // upstream at esp32-arduino-lib-builder PR #394 ("Matter and OpenThread
