@@ -13,6 +13,6 @@
 :: ============================================================
 SET BRAND_NAME=Open Sesame
 SET MAIN_FIRMWARE=OpenSesame_C5_Production.bin
-SET BRAND_LOGO=logo.png
+SET BRAND_LOGO=MiniTechLogo2.png
 
 call "%~dp0flash_device_core.bat"

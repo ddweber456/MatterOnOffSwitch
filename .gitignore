@@ -5,3 +5,5 @@ temp_qr.png
 temp_factory_layout.csv
 Docs/
 Claude outputs/
+build/
+*.bin
