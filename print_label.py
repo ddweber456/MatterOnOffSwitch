@@ -7,6 +7,14 @@ from reportlab.lib.pagesizes import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Image, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
+# [FIXED 2026-09-18] print() lines below used to lead with an emoji
+# (⚠️/🎉/❌/💡). cmd.exe's default console codepage doesn't decode
+# multi-byte UTF-8 emoji, so each one rendered as garbled symbol
+# characters on David's screen instead of an icon. Replaced with plain
+# ASCII (or just dropped, where the following text already says
+# Warning/SUCCESS/FAILURE) - see flash_device_core.bat's Rev 1.37 note
+# for the full reasoning (same fix applied there and in mfg_tool.py).
+
 def generate_matter_qr_payload(discriminator, passcode, vid=0xFFF1, pid=0x8000):
     """
     Encodes standard Matter onboard parameters into a compliant Base38 MT: string format.
@@ -106,7 +114,7 @@ def main():
 
     logo_path = args.logo
     if not os.path.exists(logo_path):
-        print(f"⚠️  Warning: '{logo_path}' not found. Creating a generic temporary placeholder logo text graphic for brand \"{brand}\".")
+        print(f"Warning: '{logo_path}' not found. Creating a generic temporary placeholder logo text graphic for brand \"{brand}\".")
         from PIL import Image as PILImage, ImageDraw
         img = PILImage.new('RGB', (150, 75), color = (0, 0, 0))
         d = ImageDraw.Draw(img)
@@ -169,10 +177,10 @@ def main():
             os.startfile(pdf_filename, "print")
         else:
             subprocess.run(["lp", pdf_filename], check=True)
-        print("🎉 SUCCESS: Label layout processed cleanly down to the physical hardware terminal unit.")
+        print("SUCCESS: Label layout processed cleanly down to the physical hardware terminal unit.")
     except Exception as e:
-        print(f"❌ PRINTER PIPELINE FAILURE: Details: {e}")
-        print(f"💡 You can manually open and verify the generated layout inside the folder: {pdf_filename}")
+        print(f"PRINTER PIPELINE FAILURE: Details: {e}")
+        print(f"TIP: You can manually open and verify the generated layout inside the folder: {pdf_filename}")
 
     if os.path.exists(qr_path):
         os.remove(qr_path)

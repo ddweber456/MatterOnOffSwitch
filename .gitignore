@@ -4,6 +4,8 @@ production_log.csv
 temp_qr.png
 temp_factory_layout.csv
 Docs/
-Claude outputs/
+Logo_files/
 build/
 *.bin
+port_list.txt
+port_*.log

@@ -5,6 +5,14 @@ import subprocess
 import csv
 from datetime import datetime
 
+# [FIXED 2026-09-18] print() lines below used to lead with an emoji (❌/🎉).
+# cmd.exe's default console codepage doesn't decode multi-byte UTF-8 emoji,
+# so each one rendered as garbled symbol characters on David's screen
+# instead of an icon. Replaced with plain ASCII (or just dropped, where the
+# following text already says ERROR/SUCCESS/etc) - see flash_device_core.bat's
+# Rev 1.37 note for the full reasoning (same fix applied there and in
+# print_label.py).
+
 
 def discriminator_from_mac(mac_str):
     """
@@ -55,11 +63,11 @@ def main():
     # requirement that it be >= 1000. The MAC-derived formula can legitimately land anywhere
     # in that full range, so the check only needs to guard against a malformed/out-of-range value.
     if not (0 <= discriminator <= 4095):
-        print("❌ ERROR: Discriminator must be a valid 12-bit value between 0 and 4095.")
+        print("ERROR: Discriminator must be a valid 12-bit value between 0 and 4095.")
         sys.exit(1)
 
     if not (10000000 <= args.passcode <= 99999999):
-        print("❌ ERROR: Passcode must be exactly 8 digits.")
+        print("ERROR: Passcode must be exactly 8 digits.")
         sys.exit(1)
 
     csv_filename = "temp_factory_layout.csv"
@@ -92,26 +100,42 @@ device_name,data,string,{custom_device_name}
         print(f"[Python] Structuring payload profile for values: Disc=0x{discriminator:03X} ({discriminator}), PIN={args.passcode}")
         print(f"[Python] Appended Custom NV Device Identity: \"{custom_device_name}\" (brand: \"{brand}\")")
 
-        # 3. Locate Espressif NVS Generator tool inside local machine architecture
-        user_profile = os.environ.get("USERPROFILE", "C:\\Users\\Admin")
-        nvs_gen_path = os.path.join(user_profile, "AppData", "Local", "Arduino15", "packages", "esp32", "tools", "esptool_py", "4.6", "nvs_partition_gen.py")
-        if not os.path.exists(nvs_gen_path):
-            nvs_gen_path = "nvs_partition_gen.py"
+        # 3. Invoke Espressif's NVS partition generator.
+        #
+        # [FIXED 2026-09-17] This used to hunt for nvs_partition_gen.py inside the Arduino-
+        # bundled esptool_py package's own folder (older esptool_py 4.x releases shipped it as
+        # a plain .py file alongside esptool.py there). As of esptool_py 5.3.1, that package on
+        # Windows ships ONLY compiled binaries (esptool.exe/espefuse.exe/espsecure.exe/
+        # esp_rfc2217_server.exe) - confirmed directly by listing the installed 5.3.1 package
+        # folder, which contains no .py files at all. So the hardcoded "...esptool_py\4.6\
+        # nvs_partition_gen.py" path (itself already the wrong version number - installed
+        # versions here are 4.5.1 and 5.3.1, never 4.6) could never have resolved, and the bare
+        # "nvs_partition_gen.py" fallback needed the file to exist in the current working
+        # directory, which it never did either - hence "can't open file 'nvs_partition_gen.py'".
+        #
+        # Fix: use Espressif's own standalone replacement, the `esp-idf-nvs-partition-gen` PyPI
+        # package (https://github.com/espressif/esp-idf-nvs-partition-gen) - published
+        # specifically so this tool doesn't require a full ESP-IDF install. It exposes a
+        # `python -m esp_idf_nvs_partition_gen generate <input> <output> <size>` entry point
+        # with the exact same argument order this script already builds, so no other change is
+        # needed here. One-time setup on a new machine: `py -3 -m pip install
+        # esp-idf-nvs-partition-gen`. This also means the tool no longer depends on which
+        # esptool_py version Arduino's Boards Manager happens to have installed.
 
-        # 4. Invoke the compiler script using standard subprocess calls to compile binary payloads
+        # 4. Invoke the installed module directly - no path-hunting needed.
         cmd = [
-            sys.executable, nvs_gen_path,
+            sys.executable, "-m", "esp_idf_nvs_partition_gen",
             "generate", csv_filename, args.out, "0x4000"
         ]
         print(f"[Python] Compiling target key arrays to binary structure: {args.out}...")
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         if result.returncode != 0:
-            print("❌ PACKAGING COMPILER COMPILATION ERROR DETAILS:")
+            print("PACKAGING COMPILER COMPILATION ERROR DETAILS:")
             print(result.stderr)
             sys.exit(1)
 
-        print(f"🎉 SUCCESS: Captured configurations compiled successfully to target binary object: {args.out}")
+        print(f"SUCCESS: Captured configurations compiled successfully to target binary object: {args.out}")
 
         # 5. Quality Tracking Master CSV Logger Mechanism
         print(f"[QA Logger] Appending unit information to master file: {log_filename}")
@@ -124,7 +148,7 @@ device_name,data,string,{custom_device_name}
             writer.writerow([current_time, args.mac.upper(), brand, custom_device_name, discriminator, args.passcode, "SUCCESS"])
 
     except Exception as e:
-        print(f"❌ LOG MECHANISM SYSTEM ERROR: {e}")
+        print(f"LOG MECHANISM SYSTEM ERROR: {e}")
         sys.exit(1)
     finally:
         if os.path.exists(csv_filename):
